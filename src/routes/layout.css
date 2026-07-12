@@ -1,0 +1,23 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
+
+@theme {
+	--color-brand: #e50914;
+	--color-brand-dark: #b20710;
+	--color-ink: #141414;
+	--color-ink-soft: #1f1f1f;
+}
+
+/* Pointer cursor on all interactive elements; not-allowed when disabled. */
+button:not(:disabled),
+[role='button'],
+input[type='checkbox'],
+input[type='radio'],
+summary,
+label {
+	cursor: pointer;
+}
+button:disabled {
+	cursor: not-allowed;
+}
