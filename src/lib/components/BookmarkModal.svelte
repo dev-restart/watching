@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { fade, fly } from 'svelte/transition';
 	import { getAppNavigation } from '$lib/app-navigation';
+	import { trackEvent } from '$lib/client/analytics';
 	import { loadBookmarks, removeBookmarks, clearBookmarks, type Bookmark } from '$lib/bookmarks';
 	import { imgUrl } from '$lib/img';
 
@@ -31,11 +32,29 @@
 		selected = allSelected ? new Set() : new Set(bookmarks.map((b) => b.id));
 	}
 	function removeSelected() {
+		for (const bookmark of bookmarks) {
+			if (selected.has(bookmark.id) && bookmark.contentId) {
+				void trackEvent({
+					type: 'bookmark_remove',
+					contentId: bookmark.contentId,
+					title: bookmark.title
+				});
+			}
+		}
 		removeBookmarks(selected);
 		bookmarks = loadBookmarks();
 		selected = new Set();
 	}
 	function clearAll() {
+		for (const bookmark of bookmarks) {
+			if (bookmark.contentId) {
+				void trackEvent({
+					type: 'bookmark_remove',
+					contentId: bookmark.contentId,
+					title: bookmark.title
+				});
+			}
+		}
 		clearBookmarks();
 		bookmarks = [];
 		selected = new Set();

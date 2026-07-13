@@ -4,6 +4,16 @@ interface RequestOptions {
 	signal?: AbortSignal;
 }
 
+export class ApiError extends Error {
+	constructor(
+		message: string,
+		readonly status: number
+	) {
+		super(message);
+		this.name = 'ApiError';
+	}
+}
+
 async function postJson<T>(path: string, body: object, options: RequestOptions = {}): Promise<T> {
 	const response = await fetch(path, {
 		method: 'POST',
@@ -18,7 +28,7 @@ async function postJson<T>(path: string, body: object, options: RequestOptions =
 			data && typeof data === 'object' && 'message' in data && typeof data.message === 'string'
 				? data.message
 				: `Request failed (${response.status})`;
-		throw new Error(message);
+		throw new ApiError(message, response.status);
 	}
 
 	return data as T;

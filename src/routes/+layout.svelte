@@ -1,17 +1,21 @@
 <script lang="ts">
 	import './layout.css';
+	import { onMount } from 'svelte';
 	import favicon from '$lib/assets/favicon.png';
 	import { setAppNavigation, type AppNavigation, type DetailTarget } from '$lib/app-navigation';
+	import { trackEvent } from '$lib/client/analytics';
 	import SearchModal from '$lib/components/SearchModal.svelte';
 	import HistoryModal from '$lib/components/HistoryModal.svelte';
 	import BookmarkModal from '$lib/components/BookmarkModal.svelte';
 	import DetailView from '$lib/components/DetailView.svelte';
+	import PrivacyModal from '$lib/components/PrivacyModal.svelte';
 
 	let { children } = $props();
 
 	let searchOpen = $state(false);
 	let historyOpen = $state(false);
 	let bookmarksOpen = $state(false);
+	let privacyOpen = $state(false);
 	let initialQuery = $state('');
 	let detail = $state<DetailTarget | null>(null);
 
@@ -19,12 +23,15 @@
 		openSearch: (q = '') => {
 			initialQuery = q;
 			searchOpen = true;
+			void trackEvent({ type: 'search_open' });
 		},
 		openHistory: () => {
 			historyOpen = true;
+			void trackEvent({ type: 'history_open' });
 		},
 		openBookmarks: () => {
 			bookmarksOpen = true;
+			void trackEvent({ type: 'bookmarks_open' });
 		},
 		showDetail: (target) => {
 			detail = target;
@@ -35,12 +42,16 @@
 	};
 	setAppNavigation(nav);
 
+	onMount(() => {
+		void trackEvent({ type: 'visit', path: window.location.pathname });
+	});
+
 	// Global keyboard shortcuts (ignored while typing or when a modal is open).
 	function onKeydown(e: KeyboardEvent) {
 		const t = e.target as HTMLElement | null;
 		if (t && (/input|textarea|select/i.test(t.tagName) || t.isContentEditable)) return;
 		if (e.metaKey || e.ctrlKey || e.altKey) return;
-		if (searchOpen || historyOpen || bookmarksOpen) return;
+		if (searchOpen || historyOpen || bookmarksOpen || privacyOpen) return;
 		if (e.key === '/') {
 			e.preventDefault();
 			nav.openSearch();
@@ -125,9 +136,11 @@
 		<div class="mx-auto max-w-3xl text-xs leading-relaxed text-neutral-500">
 			<p class="font-semibold text-neutral-400">Disclaimer</p>
 			<p class="mt-2">
-				A search-engine demo that matches and links to titles from public sources. We store no
-				data. No liability is assumed, and availability may change or end without notice.
+				A search-engine demo that matches and links to titles from public sources. Limited
+				first-party access and usage data is collected for reliability and service analytics.
+				No liability is assumed, and availability may change or end without notice.
 			</p>
+
 		</div>
 	</footer>
 </div>
@@ -135,3 +148,4 @@
 <SearchModal open={searchOpen} initialQuery={initialQuery} onClose={() => (searchOpen = false)} />
 <HistoryModal open={historyOpen} onClose={() => (historyOpen = false)} />
 <BookmarkModal open={bookmarksOpen} onClose={() => (bookmarksOpen = false)} />
+<PrivacyModal open={privacyOpen} onClose={() => (privacyOpen = false)} />

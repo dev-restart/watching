@@ -2,7 +2,8 @@
 	import { tick } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import type { Episode, StreamSession } from '$lib/types';
-	import { isAbortError, loadEpisodes } from '$lib/client/api';
+	import { ApiError, isAbortError, loadEpisodes } from '$lib/client/api';
+	import { trackEvent } from '$lib/client/analytics';
 	import { getOrFetchSession } from '$lib/session';
 	import { imgUrl } from '$lib/img';
 	import { addHistory } from '$lib/history';
@@ -92,9 +93,20 @@
 			episodes = data.episodes;
 			bookmarked = syncBookmarkIdentity(contentId, key, series);
 			loaded = true;
+			void trackEvent({
+				type: 'detail_view',
+				contentId,
+				title: series,
+				episodeCount: episodes.length
+			});
 		} catch (err) {
 			if (isAbortError(err) || signal.aborted) return;
 			errorMsg = err instanceof Error ? err.message : String(err);
+			void trackEvent({
+				type: 'operation_error',
+				operation: 'detail',
+				status: err instanceof ApiError ? err.status : undefined
+			});
 		} finally {
 			if (!signal.aborted) loading = false;
 		}
@@ -102,6 +114,11 @@
 
 	function toggleBm() {
 		bookmarked = toggleBookmark({ contentId, detailKey, title: series, poster: posterKey, synopsis });
+		void trackEvent({
+			type: bookmarked ? 'bookmark_add' : 'bookmark_remove',
+			contentId,
+			title: series
+		});
 	}
 
 	function retryLast() {
@@ -115,6 +132,13 @@
 			const s = await getOrFetchSession(ep.playKey, force);
 			playing = { session: s, title: ep.title, playKey: ep.playKey };
 			lastFailedEp = null;
+			void trackEvent({
+				type: 'play_session_created',
+				contentId,
+				title: series,
+				episodeIndex: ep.index,
+				episodeNo: ep.no
+			});
 			addHistory({
 				contentId,
 				detailKey,
@@ -130,6 +154,11 @@
 		} catch (err) {
 			errorMsg = err instanceof Error ? err.message : String(err);
 			lastFailedEp = ep;
+			void trackEvent({
+				type: 'operation_error',
+				operation: 'playback',
+				status: err instanceof ApiError ? err.status : undefined
+			});
 		} finally {
 			pendingKey = null;
 		}

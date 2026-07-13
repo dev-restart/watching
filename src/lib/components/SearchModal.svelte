@@ -2,7 +2,9 @@
 	import { tick } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { getAppNavigation } from '$lib/app-navigation';
-	import { isAbortError, searchTitles } from '$lib/client/api';
+	import { ApiError, isAbortError, searchTitles } from '$lib/client/api';
+	import { trackEvent } from '$lib/client/analytics';
+	import type { SearchInputMethod } from '$lib/analytics';
 	import type { SearchResult } from '$lib/types';
 	import { imgUrl } from '$lib/img';
 	import {
@@ -64,7 +66,7 @@
 		touched = false;
 		activeCat = 'All';
 		recents = loadRecentQueries();
-		if (seed.trim()) void runSearch(seed);
+		if (seed.trim()) void runSearch(seed, 'initial');
 		void tick().then(() => inputEl?.focus());
 
 		return () => {
@@ -74,7 +76,7 @@
 		};
 	});
 
-	async function runSearch(searchQuery: string) {
+	async function runSearch(searchQuery: string, inputMethod: SearchInputMethod) {
 		const q = searchQuery.trim();
 		if (!q) {
 			results = [];
@@ -97,10 +99,21 @@
 			touched = true;
 			addRecentQuery(q);
 			recents = loadRecentQueries();
+			void trackEvent({
+				type: 'search_success',
+				query: q,
+				resultCount: data.results.length,
+				inputMethod
+			});
 		} catch (e) {
 			if (isAbortError(e) || version !== searchVersion) return;
 			errorMsg = e instanceof Error ? e.message : String(e);
 			results = [];
+			void trackEvent({
+				type: 'operation_error',
+				operation: 'search',
+				status: e instanceof ApiError ? e.status : undefined
+			});
 		} finally {
 			if (version === searchVersion) loading = false;
 		}
@@ -112,17 +125,23 @@
 		searchController?.abort();
 		loading = false;
 		const nextQuery = query;
-		timer = setTimeout(() => void runSearch(nextQuery), 300);
+		timer = setTimeout(() => void runSearch(nextQuery, 'typed'), 300);
 	}
 
 	function pick(r: SearchResult) {
+		void trackEvent({
+			type: 'search_result_open',
+			contentId: r.contentId,
+			title: r.title,
+			category: r.category || undefined
+		});
 		onClose();
 		nav.showDetail({ detailKey: r.detailKey, poster: r.thumbnail, synopsis: r.synopsis });
 	}
 
 	function useRecent(q: string) {
 		query = q;
-		void runSearch(q);
+		void runSearch(q, 'recent');
 	}
 
 	function onKey(e: KeyboardEvent) {
@@ -153,7 +172,7 @@
 			const text = e.results?.[0]?.[0]?.transcript;
 			if (text) {
 				query = text;
-				void runSearch(text);
+				void runSearch(text, 'voice');
 			}
 		};
 		rec.onend = () => (listening = false);
