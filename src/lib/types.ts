@@ -18,6 +18,8 @@ export interface Episode {
 
 /** Episode list response. */
 export interface EpisodeList {
+	/** stable opaque source-post identity; never grants API access */
+	contentId: string;
 	series: string;
 	/** ordered 1..N */
 	episodes: Episode[];
@@ -25,6 +27,8 @@ export interface EpisodeList {
 
 /** A single search result item. */
 export interface SearchResult {
+	/** stable opaque source-post identity; never grants API access */
+	contentId: string;
 	title: string;
 	description: string;
 	thumbnail: string;
@@ -47,19 +51,8 @@ export interface SearchResponse {
 
 /** Resolved stream session + assembled playback URL. */
 export interface StreamSession {
-	success: boolean;
-	/** rotating short id from the player path */
-	short_id: string;
-	/** player base URL (no query) */
-	player_url: string;
-	/** issued timestamp (unix seconds) */
-	t: number;
-	/** signature paired with t */
-	sig: string;
-	/** expiry (unix seconds) = t + 300 */
+	/** playback session expiry (unix seconds) */
 	expires: number;
-	/** final playback URL: player_url?t=<t>&sig=<sig> */
+	/** final playback URL */
 	full: string;
-	/** company (player host with common prefixes stripped) */
-	company: string;
 }

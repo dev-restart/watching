@@ -1,7 +1,7 @@
 <script lang="ts">
 	import './layout.css';
-	import { setContext } from 'svelte';
 	import favicon from '$lib/assets/favicon.png';
+	import { setAppNavigation, type AppNavigation, type DetailTarget } from '$lib/app-navigation';
 	import SearchModal from '$lib/components/SearchModal.svelte';
 	import HistoryModal from '$lib/components/HistoryModal.svelte';
 	import BookmarkModal from '$lib/components/BookmarkModal.svelte';
@@ -13,11 +13,9 @@
 	let historyOpen = $state(false);
 	let bookmarksOpen = $state(false);
 	let initialQuery = $state('');
-	let view = $state<'home' | 'detail'>('home');
-	let detailKey = $state('');
-	let autoPlayEpIndex = $state<number | undefined>(undefined);
+	let detail = $state<DetailTarget | null>(null);
 
-	const nav = {
+	const nav: AppNavigation = {
 		openSearch: (q = '') => {
 			initialQuery = q;
 			searchOpen = true;
@@ -28,27 +26,14 @@
 		openBookmarks: () => {
 			bookmarksOpen = true;
 		},
-		showDetail: (
-			key: string,
-			opts?: { poster?: string; synopsis?: string; autoPlayEpIndex?: number }
-		) => {
-			if (typeof sessionStorage !== 'undefined') {
-				if (opts?.poster) sessionStorage.setItem('detail:poster', opts.poster);
-				else sessionStorage.removeItem('detail:poster');
-				if (opts?.synopsis) sessionStorage.setItem('detail:synopsis', opts.synopsis);
-				else sessionStorage.removeItem('detail:synopsis');
-			}
-			detailKey = key;
-			autoPlayEpIndex = opts?.autoPlayEpIndex;
-			view = 'detail';
+		showDetail: (target) => {
+			detail = target;
 		},
 		goHome: () => {
-			view = 'home';
-			detailKey = '';
-			autoPlayEpIndex = undefined;
+			detail = null;
 		}
 	};
-	setContext('nav', nav);
+	setAppNavigation(nav);
 
 	// Global keyboard shortcuts (ignored while typing or when a modal is open).
 	function onKeydown(e: KeyboardEvent) {
@@ -63,7 +48,7 @@
 			nav.openHistory();
 		} else if (e.key === 'b' || e.key === 'B') {
 			nav.openBookmarks();
-		} else if (e.key === 'Backspace' && view === 'detail') {
+		} else if (e.key === 'Backspace' && detail) {
 			e.preventDefault();
 			nav.goHome();
 		}
@@ -123,10 +108,16 @@
 	</header>
 
 	<main class="flex-1">
-		{#if view === 'home'}
+		{#if detail === null}
 			{@render children()}
 		{:else}
-			<DetailView detailKey={detailKey} autoPlayEpIndex={autoPlayEpIndex} onBack={nav.goHome} />
+			<DetailView
+				detailKey={detail.detailKey}
+				initialPoster={detail.poster}
+				initialSynopsis={detail.synopsis}
+				autoPlayEpIndex={detail.autoPlayEpIndex}
+				onBack={nav.goHome}
+			/>
 		{/if}
 	</main>
 

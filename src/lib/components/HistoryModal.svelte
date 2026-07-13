@@ -1,14 +1,12 @@
 <script lang="ts">
-	import { getContext } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
+	import { getAppNavigation } from '$lib/app-navigation';
 	import { loadHistory, removeHistory, clearHistory, formatWhen, type WatchEntry } from '$lib/history';
 	import { imgUrl } from '$lib/img';
 
 	let { open = false, onClose = () => {} }: { open?: boolean; onClose?: () => void } = $props();
 
-	const nav = getContext<{
-		showDetail: (key: string, opts?: { poster?: string; synopsis?: string; autoPlayEpIndex?: number }) => void;
-	}>('nav');
+	const nav = getAppNavigation();
 
 	let history = $state<WatchEntry[]>([]);
 	let selected = $state<Set<string>>(new Set());
@@ -28,10 +26,12 @@
 		history
 			.filter((e) => !query.trim() || e.title.toLowerCase().includes(query.trim().toLowerCase()))
 			.slice()
-			.sort((a, b) => (sortBy === 'title' ? a.title.localeCompare(b.title) : 0))
+			.sort((a, b) => (sortBy === 'title' ? a.title.localeCompare(b.title) : b.ts - a.ts))
 	);
 
-	const allSelected = $derived(filtered.length > 0 && selected.size === filtered.length);
+	const allSelected = $derived(
+		filtered.length > 0 && filtered.every((entry) => selected.has(entry.id))
+	);
 	const hasSel = $derived(selected.size > 0);
 
 	function toggle(id: string) {
@@ -41,10 +41,15 @@
 		selected = s;
 	}
 	function toggleAll() {
-		selected = allSelected ? new Set() : new Set(filtered.map((e) => e.id));
+		const next = new Set(selected);
+		for (const entry of filtered) {
+			if (allSelected) next.delete(entry.id);
+			else next.add(entry.id);
+		}
+		selected = next;
 	}
 	function removeSelected() {
-		selected.forEach((id) => removeHistory(id));
+		removeHistory(selected);
 		history = loadHistory();
 		selected = new Set();
 	}
@@ -55,7 +60,8 @@
 	}
 	function resume(e: WatchEntry) {
 		onClose();
-		nav?.showDetail(e.detailKey, {
+		nav.showDetail({
+			detailKey: e.detailKey,
 			poster: e.poster,
 			synopsis: e.synopsis,
 			autoPlayEpIndex: e.epIndex
@@ -84,10 +90,11 @@
 			transition:fly={{ y: -20, duration: 200 }}
 			role="dialog"
 			aria-modal="true"
+			aria-labelledby="history-title"
 		>
 			<!-- toolbar -->
 			<div class="flex shrink-0 flex-wrap items-center gap-3 border-b border-neutral-800 px-5 py-4">
-				<h2 class="text-base font-semibold text-neutral-100">Watch history</h2>
+				<h2 id="history-title" class="text-base font-semibold text-neutral-100">Watch history</h2>
 				<span class="text-xs text-neutral-500">{history.length}</span>
 				<div class="ml-auto flex flex-wrap items-center gap-3">
 					<div class="flex items-center gap-1 overflow-hidden rounded-md border border-neutral-800 bg-neutral-900 px-1 py-0.5">

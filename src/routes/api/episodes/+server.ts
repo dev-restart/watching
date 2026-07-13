@@ -1,21 +1,18 @@
 import { error, json } from '@sveltejs/kit';
-import { getEpisodes, CatalogError } from '$lib/server/catalog';
+import { getEpisodes } from '$lib/server/catalog';
 import { openUrl } from '$lib/server/tokens';
+import { assertSourceUrl } from '$lib/server/url-policy';
+import { readJsonObject, requireString } from '$lib/server/api-request';
 import type { RequestHandler } from './$types';
 
 /** POST { key } -> { series, episodes }  (key is an opaque server-encrypted detail URL) */
 export const POST: RequestHandler = async ({ request }) => {
-	let body: { key?: string; url?: string };
-	try {
-		body = await request.json();
-	} catch {
-		throw error(400, 'Invalid JSON.');
-	}
+	const body = await readJsonObject(request);
+	const key = requireString(body, 'key', { maxLength: 4096, label: 'Key' });
 
 	let targetUrl = '';
 	try {
-		if (body?.key) targetUrl = openUrl(body.key);
-		else if (body?.url) targetUrl = body.url; // dev/compat
+		targetUrl = assertSourceUrl(openUrl(key, 'detail', { allowLegacy: true }));
 	} catch {
 		throw error(400, 'Invalid detail request.');
 	}
@@ -28,7 +25,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		const result = await getEpisodes(targetUrl);
 		return json(result);
 	} catch (err) {
-		const msg = err instanceof CatalogError ? err.message : 'Failed to load episodes.';
-		throw error(502, msg);
+		console.error('[api/episodes] request failed', err);
+		throw error(502, 'Details are temporarily unavailable.');
 	}
 };

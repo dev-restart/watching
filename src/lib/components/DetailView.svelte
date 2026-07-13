@@ -1,20 +1,31 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
-	import type { Episode, EpisodeList, StreamSession } from '$lib/types';
+	import type { Episode, StreamSession } from '$lib/types';
+	import { isAbortError, loadEpisodes } from '$lib/client/api';
 	import { getOrFetchSession } from '$lib/session';
 	import { imgUrl } from '$lib/img';
 	import { addHistory } from '$lib/history';
-	import { isBookmarked, toggleBookmark } from '$lib/bookmarks';
+	import { syncBookmarkIdentity, toggleBookmark } from '$lib/bookmarks';
 
 	let {
 		detailKey = '',
+		initialPoster = '',
+		initialSynopsis = '',
 		autoPlayEpIndex,
 		onBack
-	}: { detailKey: string; autoPlayEpIndex?: number; onBack?: () => void } = $props();
+	}: {
+		detailKey: string;
+		initialPoster?: string;
+		initialSynopsis?: string;
+		autoPlayEpIndex?: number;
+		onBack?: () => void;
+	} = $props();
 
 	let loading = $state(false);
 	let errorMsg = $state('');
 	let series = $state('');
+	let contentId = $state('');
 	let episodes = $state<Episode[]>([]);
 	let loaded = $state(false);
 
@@ -31,12 +42,15 @@
 	const isSeries = $derived(episodes.some((e) => e.no !== null) || episodes.length > 1);
 	const heroThumb = $derived(episodes[0]?.thumbnail ?? '');
 
-	let lastLoaded = '';
 	$effect(() => {
-		if (detailKey && detailKey !== lastLoaded) {
-			lastLoaded = detailKey;
-			loadDetail(detailKey);
-		}
+		const key = detailKey;
+		const poster = initialPoster;
+		const description = initialSynopsis;
+		if (!key) return;
+
+		const controller = new AbortController();
+		void loadDetail(key, poster, description, controller.signal);
+		return () => controller.abort();
 	});
 
 	// Auto-resume a previously watched episode once the list is loaded.
@@ -51,42 +65,43 @@
 		}
 	});
 
-	async function loadDetail(key: string) {
-		if (typeof sessionStorage !== 'undefined') {
-			posterKey = sessionStorage.getItem('detail:poster') ?? '';
-			synopsis = sessionStorage.getItem('detail:synopsis') ?? '';
-		}
-		bookmarked = isBookmarked(key);
+	async function loadDetail(
+		key: string,
+		initialPosterKey: string,
+		initialDescription: string,
+		signal: AbortSignal
+	) {
+		posterKey = initialPosterKey;
+		synopsis = initialDescription;
+		bookmarked = false;
+		contentId = '';
+		series = '';
 		loading = true;
 		errorMsg = '';
 		loaded = false;
 		playing = null;
 		episodes = [];
+		lastFailedEp = null;
 		autoDone = false;
 
 		try {
-			const res = await fetch('/api/episodes', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ key })
-			});
-			if (!res.ok) {
-				const j = await res.json().catch(() => ({}));
-				throw new Error(j.message || `Failed to load (${res.status})`);
-			}
-			const data: EpisodeList = await res.json();
+			const data = await loadEpisodes(key, signal);
+			if (signal.aborted) return;
+			contentId = data.contentId;
 			series = data.series;
 			episodes = data.episodes;
+			bookmarked = syncBookmarkIdentity(contentId, key, series);
 			loaded = true;
 		} catch (err) {
+			if (isAbortError(err) || signal.aborted) return;
 			errorMsg = err instanceof Error ? err.message : String(err);
 		} finally {
-			loading = false;
+			if (!signal.aborted) loading = false;
 		}
 	}
 
 	function toggleBm() {
-		bookmarked = toggleBookmark({ detailKey, title: series, poster: posterKey, synopsis });
+		bookmarked = toggleBookmark({ contentId, detailKey, title: series, poster: posterKey, synopsis });
 	}
 
 	function retryLast() {
@@ -101,6 +116,7 @@
 			playing = { session: s, title: ep.title, playKey: ep.playKey };
 			lastFailedEp = null;
 			addHistory({
+				contentId,
 				detailKey,
 				title: series,
 				poster: posterKey,
@@ -109,10 +125,8 @@
 				epIndex: ep.index,
 				no: ep.no
 			});
-			setTimeout(
-				() => document.getElementById('player-panel')?.scrollIntoView({ behavior: 'smooth' }),
-				50
-			);
+			await tick();
+			document.getElementById('player-panel')?.scrollIntoView({ behavior: 'smooth' });
 		} catch (err) {
 			errorMsg = err instanceof Error ? err.message : String(err);
 			lastFailedEp = ep;

@@ -2,14 +2,15 @@
 // The frontend only ever holds the opaque playKey/detailKey from the server.
 
 import type { StreamSession } from './types';
+import { createPlaybackSession } from '$lib/client/api';
 
 const SAFETY_MS = 20_000; // treat as expired 20s before the real expiry
 
-export function ssKey(playKey: string): string {
+function ssKey(playKey: string): string {
 	return `watching:session:${playKey}`;
 }
 
-export function readSession(playKey: string): StreamSession | null {
+function readSession(playKey: string): StreamSession | null {
 	if (typeof sessionStorage === 'undefined') return null;
 	const raw = sessionStorage.getItem(ssKey(playKey));
 	if (!raw) return null;
@@ -20,22 +21,13 @@ export function readSession(playKey: string): StreamSession | null {
 	}
 }
 
-export function isFresh(s: StreamSession | null, now = Date.now()): boolean {
+function isFresh(s: StreamSession | null, now = Date.now()): boolean {
 	return !!s && s.expires * 1000 - SAFETY_MS > now;
 }
 
 // Fetch a session via the API and cache it.
-export async function fetchSession(playKey: string): Promise<StreamSession> {
-	const res = await fetch('/api/session', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ key: playKey })
-	});
-	if (!res.ok) {
-		const j = await res.json().catch(() => ({}));
-		throw new Error(j.message || `Session failed (${res.status})`);
-	}
-	const s = (await res.json()) as StreamSession;
+async function fetchSession(playKey: string): Promise<StreamSession> {
+	const s = await createPlaybackSession(playKey);
 	if (typeof sessionStorage !== 'undefined') {
 		sessionStorage.setItem(ssKey(playKey), JSON.stringify(s));
 	}

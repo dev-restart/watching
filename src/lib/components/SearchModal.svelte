@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
-	import { getContext } from 'svelte';
+	import { getAppNavigation } from '$lib/app-navigation';
+	import { isAbortError, searchTitles } from '$lib/client/api';
 	import type { SearchResult } from '$lib/types';
 	import { imgUrl } from '$lib/img';
 	import {
@@ -16,7 +18,7 @@
 		onClose = () => {}
 	}: { open?: boolean; initialQuery?: string; onClose?: () => void } = $props();
 
-	const nav = getContext<{ showDetail: (k: string, o?: { poster?: string; synopsis?: string }) => void }>('nav');
+	const nav = getAppNavigation();
 
 	let query = $state('');
 	let inputEl = $state<HTMLInputElement>();
@@ -27,70 +29,100 @@
 	let recents = $state<string[]>([]);
 	let activeCat = $state('All');
 	let timer: ReturnType<typeof setTimeout> | undefined;
+	let searchController: AbortController | undefined;
+	let searchVersion = 0;
 
 	const cats = $derived(['All', ...Array.from(new Set(results.map((r) => r.category).filter(Boolean)))]);
 	const filtered = $derived(activeCat === 'All' ? results : results.filter((r) => r.category === activeCat));
 
+	interface SpeechRecognitionEventLike {
+		results?: { [index: number]: { [index: number]: { transcript?: string } } };
+	}
+
+	interface SpeechRecognitionLike {
+		lang: string;
+		interimResults: boolean;
+		maxAlternatives: number;
+		onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+		onend: (() => void) | null;
+		onerror: (() => void) | null;
+		start(): void;
+		stop(): void;
+		abort(): void;
+	}
+
+	type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
 	// When opened, seed the query, auto-run when present, focus the input, load recents.
 	$effect(() => {
-		if (open) {
-			query = initialQuery;
-			results = [];
-			errorMsg = '';
-			touched = false;
-			activeCat = 'All';
-			recents = loadRecentQueries();
-			if (initialQuery.trim()) runSearch();
-			queueMicrotask(() => inputEl?.focus());
-		}
+		if (!open) return;
+
+		const seed = initialQuery;
+		query = seed;
+		results = [];
+		errorMsg = '';
+		touched = false;
+		activeCat = 'All';
+		recents = loadRecentQueries();
+		if (seed.trim()) void runSearch(seed);
+		void tick().then(() => inputEl?.focus());
+
+		return () => {
+			clearTimeout(timer);
+			searchVersion += 1;
+			searchController?.abort();
+		};
 	});
 
-	async function runSearch() {
-		const q = query.trim();
+	async function runSearch(searchQuery: string) {
+		const q = searchQuery.trim();
 		if (!q) {
 			results = [];
 			touched = false;
+			loading = false;
 			return;
 		}
+
+		searchController?.abort();
+		const controller = new AbortController();
+		searchController = controller;
+		const version = ++searchVersion;
 		loading = true;
 		errorMsg = '';
 		activeCat = 'All';
 		try {
-			const res = await fetch('/api/search', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ query: q })
-			});
-			if (!res.ok) {
-				const j = await res.json().catch(() => ({}));
-				throw new Error(j.message || `Search failed (${res.status})`);
-			}
-			const data = await res.json();
+			const data = await searchTitles(q, controller.signal);
+			if (version !== searchVersion) return;
 			results = data.results;
 			touched = true;
 			addRecentQuery(q);
 			recents = loadRecentQueries();
 		} catch (e) {
+			if (isAbortError(e) || version !== searchVersion) return;
 			errorMsg = e instanceof Error ? e.message : String(e);
 			results = [];
 		} finally {
-			loading = false;
+			if (version === searchVersion) loading = false;
 		}
 	}
 
 	function onInput() {
 		clearTimeout(timer);
-		timer = setTimeout(runSearch, 300);
+		searchVersion += 1;
+		searchController?.abort();
+		loading = false;
+		const nextQuery = query;
+		timer = setTimeout(() => void runSearch(nextQuery), 300);
 	}
 
 	function pick(r: SearchResult) {
 		onClose();
-		nav?.showDetail(r.detailKey, { poster: r.thumbnail, synopsis: r.synopsis });
+		nav.showDetail({ detailKey: r.detailKey, poster: r.thumbnail, synopsis: r.synopsis });
 	}
 
 	function useRecent(q: string) {
 		query = q;
-		runSearch();
+		void runSearch(q);
 	}
 
 	function onKey(e: KeyboardEvent) {
@@ -103,26 +135,38 @@
 	// --- Voice search via Web Speech API (shown only when the browser supports it) ---
 	let speechSupported = $state(false);
 	let listening = $state(false);
-	let recognition: any = undefined;
+	let recognition: SpeechRecognitionLike | undefined;
 	$effect(() => {
 		if (typeof window === 'undefined') return;
-		const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+		const speechWindow = window as typeof window & {
+			SpeechRecognition?: SpeechRecognitionConstructor;
+			webkitSpeechRecognition?: SpeechRecognitionConstructor;
+		};
+		const SR = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
 		if (!SR) return;
 		speechSupported = true;
 		const rec = new SR();
 		rec.lang = 'ko-KR';
 		rec.interimResults = false;
 		rec.maxAlternatives = 1;
-		rec.onresult = (e: any) => {
+		rec.onresult = (e) => {
 			const text = e.results?.[0]?.[0]?.transcript;
 			if (text) {
 				query = text;
-				runSearch();
+				void runSearch(text);
 			}
 		};
 		rec.onend = () => (listening = false);
 		rec.onerror = () => (listening = false);
 		recognition = rec;
+
+		return () => {
+			rec.abort();
+			rec.onresult = null;
+			rec.onend = null;
+			rec.onerror = null;
+			if (recognition === rec) recognition = undefined;
+		};
 	});
 	function toggleVoice() {
 		if (!recognition) return;
@@ -155,6 +199,7 @@
 			transition:fly={{ y: -20, duration: 200 }}
 			role="dialog"
 			aria-modal="true"
+			aria-label="Search titles"
 		>
 			<div class="flex shrink-0 items-center gap-4 border-b border-neutral-800 px-6 py-5">
 				<svg class="h-7 w-7 shrink-0 text-neutral-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -182,6 +227,7 @@
 					</button>
 				{/if}
 				<button
+					type="button"
 					onclick={onClose}
 					class="rounded px-2.5 py-1 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
 				>
@@ -220,7 +266,7 @@
 						</div>
 					{/if}
 					<ul>
-						{#each filtered as r (r.detailKey)}
+						{#each filtered as r (r.contentId)}
 							<li>
 								<button
 									type="button"
@@ -250,21 +296,17 @@
 					<div class="px-3 py-2 text-[11px] uppercase tracking-wide text-neutral-600">Recent</div>
 					<div class="flex flex-wrap gap-2 px-3 pb-2">
 						{#each recents as q (q)}
-							<button
-								type="button"
-								onclick={() => useRecent(q)}
-								class="group flex items-center gap-1.5 rounded-full bg-neutral-800 px-3 py-1 text-xs text-neutral-300 transition hover:bg-neutral-700"
-							>
-								{q}
-								<span
-									role="button"
-									tabindex="0"
-									onclick={(e) => { e.stopPropagation(); removeRecentQuery(q); recents = loadRecentQueries(); }}
-									onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removeRecentQuery(q); recents = loadRecentQueries(); } }}
-									class="text-neutral-500 hover:text-rose-300"
-									title="remove"
-								>×</span>
-							</button>
+							<div class="flex items-center overflow-hidden rounded-full bg-neutral-800 text-xs text-neutral-300 transition hover:bg-neutral-700">
+								<button type="button" onclick={() => useRecent(q)} class="py-1 pl-3 pr-1.5">
+									{q}
+								</button>
+								<button
+									type="button"
+									onclick={() => { removeRecentQuery(q); recents = loadRecentQueries(); }}
+									class="py-1 pl-1.5 pr-3 text-neutral-500 hover:text-rose-300"
+									aria-label={`Remove ${q} from recent searches`}
+								>×</button>
+							</div>
 						{/each}
 						<button
 							type="button"

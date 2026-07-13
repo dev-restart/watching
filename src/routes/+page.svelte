@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { getContext } from 'svelte';
+	import { getAppNavigation } from '$lib/app-navigation';
 
-	const nav = getContext<{ openSearch: (q?: string) => void; openHistory: () => void; openBookmarks: () => void }>('nav');
+	const nav = getAppNavigation();
 	function openSearch() {
-		nav?.openSearch();
+		nav.openSearch();
 	}
 	function openHistory() {
-		nav?.openHistory();
+		nav.openHistory();
 	}
 	function openBookmarks() {
-		nav?.openBookmarks();
+		nav.openBookmarks();
 	}
 </script>
 

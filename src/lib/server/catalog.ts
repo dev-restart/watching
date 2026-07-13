@@ -11,6 +11,7 @@ import type {
 	StreamSession
 } from '$lib/types';
 import { sealUrl } from '$lib/server/tokens';
+import { contentIdForSourcePost, contentIdFromSourceUrl } from '$lib/server/content-id';
 
 function trimTrailingSlash(v: string | undefined): string {
 	return (v || '').replace(/\/+$/, '');
@@ -65,23 +66,26 @@ async function request(url: string, init: RequestInit = {}): Promise<Response> {
 		try {
 			const res = await fetch(url, init);
 			if (res.status === 429) {
-				await sleep((2 ** attempt + Math.random()) * 1000);
+				lastErr = new CatalogError('Upstream rate limit reached.');
+				if (attempt < MAX_RETRIES - 1) {
+					await sleep((2 ** attempt + Math.random()) * 1000);
+				}
 				continue;
 			}
 			return res;
 		} catch (err) {
 			lastErr = err;
-			await sleep(1500 * (attempt + 1));
+			if (attempt < MAX_RETRIES - 1) await sleep(1500 * (attempt + 1));
 		}
 	}
-	throw new CatalogError(`Request failed (${url}): ${String(lastErr)}`);
+	throw new CatalogError(`Upstream request failed: ${String(lastErr)}`);
 }
 
 export async function fetchPage(url: string): Promise<string> {
 	const res = await request(url, {
 		headers: { ...COMMON_HEADERS, Referer: `${SOURCE_ORIGIN}/` }
 	});
-	if (!res.ok) throw new CatalogError(`Page request failed (${res.status}): ${url}`);
+	if (!res.ok) throw new CatalogError(`Page request failed (${res.status}).`);
 	return res.text();
 }
 
@@ -115,6 +119,14 @@ function parseEpisodeNo(title: string): number | null {
 	return m ? parseInt(m[1], 10) : null;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string {
+	return value == null ? '' : String(value);
+}
+
 // Best-effort series title from a page <title>.
 function guessSeries(rawTitle: string): string {
 	let t = rawTitle.split(/\s*[-|]\s*/)[0];
@@ -135,27 +147,23 @@ function normalizePlayerUrl(url: string): string {
 	}
 }
 
-function playerCompany(playerUrl: string): string {
-	let host = '';
-	try {
-		host = new URL(playerUrl).hostname.toLowerCase();
-	} catch {
-		host = playerUrl;
-	}
-	return host.replace(/^(player|www|cdn\d*|m)\./, '');
-}
-
 function absUrl(href: string): string {
 	if (!href) return '';
-	if (/^https?:\/\//i.test(href)) return href;
-	return `${SOURCE_ORIGIN}${href.startsWith('/') ? '' : '/'}${href}`;
+	try {
+		const url = new URL(href, `${SOURCE_ORIGIN}/`);
+		return ['http:', 'https:'].includes(url.protocol) ? url.toString() : '';
+	} catch {
+		return '';
+	}
 }
 
 // Wrap an external image URL into an opaque token so the raw host never reaches the browser.
 // Honors IMG_PROXY: when disabled, the raw URL is returned as-is for direct loading.
 function sealIf(v: string): string {
 	if (!v) return '';
-	return IMG_PROXY ? sealUrl(v) : v;
+	const url = absUrl(v);
+	if (!url) return '';
+	return IMG_PROXY ? sealUrl(url, 'image') : url;
 }
 
 // --- public API ---
@@ -188,11 +196,12 @@ export async function getEpisodes(pageUrl: string): Promise<EpisodeList> {
 		);
 
 		const epPageUrl = absUrl(href);
+		if (!epPageUrl) return;
 		episodes.push({
 			index: idx,
 			no: parseEpisodeNo(title),
 			title,
-			playKey: sealUrl(epPageUrl),
+			playKey: sealUrl(epPageUrl, 'play'),
 			date,
 			thumbnail
 		});
@@ -200,7 +209,7 @@ export async function getEpisodes(pageUrl: string): Promise<EpisodeList> {
 
 	episodes.sort((a, b) => (a.no ?? 1e9) - (b.no ?? 1e9));
 
-	return { series, episodes };
+	return { contentId: contentIdFromSourceUrl(pageUrl), series, episodes };
 }
 
 // Title search via the board ajax endpoint.
@@ -216,33 +225,45 @@ export async function searchList(query: string, srows = 500): Promise<SearchResp
 	const res = await request(url, {
 		headers: { ...AJAX_HEADERS, Referer: `${SOURCE_ORIGIN}/`, Origin: SOURCE_ORIGIN }
 	});
+	if (!res.ok) throw new CatalogError(`Search request failed (${res.status}).`);
+
 	const text = await res.text();
-	let data: any;
+	let data: unknown;
 	try {
 		data = JSON.parse(text);
 	} catch {
-		const preview = text.replace(/\s+/g, ' ').slice(0, 120);
-		throw new CatalogError(`Search response is not JSON (status=${res.status}): ${preview}`);
+		throw new CatalogError('Search response is not valid JSON.');
 	}
 
-	const raw = data?.list;
-	const items: any[] = Array.isArray(raw)
+	const raw = isRecord(data) ? data.list : undefined;
+	const items: unknown[] = Array.isArray(raw)
 		? raw
-		: raw && typeof raw === 'object'
+		: isRecord(raw)
 			? Object.values(raw)
 			: [];
 
-	const results: SearchResult[] = items.map((it) => {
-		const href = String(it.href ?? '');
-		return {
-			title: stripTags(String(it.wr_subject ?? '')),
-			description: stripTags(String(it.sub_content ?? it.wr_content ?? '')),
-			thumbnail: sealIf(String(it.wr_4 ?? '')),
-			detailKey: sealUrl(href),
-			category: String(it.board_name ?? ''),
-			year: String(it.wr_6 ?? ''),
-			synopsis: stripTags(String(it.wr_content ?? ''))
-		};
+	const results: SearchResult[] = items.flatMap((value) => {
+		if (!isRecord(value)) return [];
+		const href = stringValue(value.href);
+		const detailUrl = absUrl(href);
+		if (!detailUrl) return [];
+		const boardId = stringValue(value.bo_table);
+		const postId = stringValue(value.wr_id);
+		return [
+			{
+				contentId:
+					boardId && /^\d+$/.test(postId)
+						? contentIdForSourcePost(boardId, postId)
+						: contentIdFromSourceUrl(detailUrl),
+				title: stripTags(stringValue(value.wr_subject)),
+				description: stripTags(stringValue(value.sub_content ?? value.wr_content)),
+				thumbnail: sealIf(stringValue(value.wr_4)),
+				detailKey: sealUrl(detailUrl, 'detail'),
+				category: stringValue(value.board_name),
+				year: stringValue(value.wr_6),
+				synopsis: stripTags(stringValue(value.wr_content))
+			}
+		];
 	});
 
 	return { query: q, count: results.length, results };
@@ -252,7 +273,7 @@ function stripTags(s: string): string {
 	return s.replace(/<[^>]*>/g, '').trim();
 }
 
-// Episode page -> token endpoint -> final player URL (+ company).
+// Episode page -> token endpoint -> minimal client playback session.
 export async function resolveStream(pageUrl: string): Promise<StreamSession> {
 	const html = await fetchPage(pageUrl);
 	const session = extractSession(html);
@@ -271,27 +292,29 @@ export async function resolveStream(pageUrl: string): Promise<StreamSession> {
 		body: JSON.stringify(session)
 	});
 
-	let data: any;
+	let data: unknown;
 	try {
 		data = await res.json();
 	} catch {
 		throw new CatalogError(`Session response parse failed (${res.status}).`);
 	}
 
-	if (!data?.success) {
-		throw new CatalogError('Session creation failed: ' + JSON.stringify(data));
+	if (!res.ok) throw new CatalogError(`Session request failed (${res.status}).`);
+	if (!isRecord(data) || data.success !== true) {
+		throw new CatalogError('Session creation failed.');
 	}
 
-	const playerUrl = normalizePlayerUrl(String(data.player_url));
+	const playerUrl = normalizePlayerUrl(stringValue(data.player_url));
+	const expires = Number(data.expires);
+	const token = stringValue(data.t);
+	const signature = stringValue(data.sig);
+	if (!playerUrl || !Number.isFinite(expires) || !token || !signature) {
+		throw new CatalogError('Session response is incomplete.');
+	}
 
+	const separator = playerUrl.includes('?') ? '&' : '?';
 	return {
-		success: true,
-		short_id: data.short_id,
-		player_url: playerUrl,
-		t: data.t,
-		sig: data.sig,
-		expires: data.expires,
-		full: `${playerUrl}?t=${data.t}&sig=${data.sig}`,
-		company: playerCompany(playerUrl)
+		expires,
+		full: `${playerUrl}${separator}t=${encodeURIComponent(token)}&sig=${encodeURIComponent(signature)}`
 	};
 }

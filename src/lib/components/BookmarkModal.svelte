@@ -1,14 +1,12 @@
 <script lang="ts">
-	import { getContext } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
-	import { loadBookmarks, removeBookmark, clearBookmarks, type Bookmark } from '$lib/bookmarks';
+	import { getAppNavigation } from '$lib/app-navigation';
+	import { loadBookmarks, removeBookmarks, clearBookmarks, type Bookmark } from '$lib/bookmarks';
 	import { imgUrl } from '$lib/img';
 
 	let { open = false, onClose = () => {} }: { open?: boolean; onClose?: () => void } = $props();
 
-	const nav = getContext<{
-		showDetail: (key: string, opts?: { poster?: string; synopsis?: string }) => void;
-	}>('nav');
+	const nav = getAppNavigation();
 
 	let bookmarks = $state<Bookmark[]>([]);
 	let selected = $state<Set<string>>(new Set());
@@ -33,7 +31,7 @@
 		selected = allSelected ? new Set() : new Set(bookmarks.map((b) => b.id));
 	}
 	function removeSelected() {
-		selected.forEach((id) => removeBookmark(id));
+		removeBookmarks(selected);
 		bookmarks = loadBookmarks();
 		selected = new Set();
 	}
@@ -44,7 +42,7 @@
 	}
 	function resume(b: Bookmark) {
 		onClose();
-		nav?.showDetail(b.detailKey, { poster: b.poster, synopsis: b.synopsis });
+		nav.showDetail({ detailKey: b.detailKey, poster: b.poster, synopsis: b.synopsis });
 	}
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Escape') onClose();
@@ -69,9 +67,10 @@
 			transition:fly={{ y: -20, duration: 200 }}
 			role="dialog"
 			aria-modal="true"
+			aria-labelledby="bookmarks-title"
 		>
 			<div class="flex shrink-0 flex-wrap items-center gap-3 border-b border-neutral-800 px-5 py-4">
-				<h2 class="text-base font-semibold text-neutral-100">Bookmarks</h2>
+				<h2 id="bookmarks-title" class="text-base font-semibold text-neutral-100">Bookmarks</h2>
 				<span class="text-xs text-neutral-500">{bookmarks.length}</span>
 				<div class="ml-auto flex flex-wrap items-center gap-3">
 					{#if bookmarks.length > 0}
