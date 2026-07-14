@@ -275,7 +275,7 @@
 			<div
 				id="player-panel"
 				transition:fly={{ y: -12, duration: 200 }}
-				class="mb-8 overflow-hidden rounded-xl border border-neutral-800 bg-ink-soft"
+				class="sticky top-0 z-50 mb-8 overflow-hidden rounded-xl border border-neutral-800 bg-ink-soft"
 			>
 				<div class="flex items-center gap-2 px-4 py-2.5">
 					<span class="text-sm font-semibold">{playing.title}</span>
