@@ -1,20 +1,24 @@
 import { error } from '@sveltejs/kit';
 
-const MAX_JSON_BYTES = 4096;
+const DEFAULT_MAX_JSON_BYTES = 4096;
 
 export type JsonObject = Record<string, unknown>;
 
-export async function readJsonObject(request: Request): Promise<JsonObject> {
+export async function readJsonObject(
+	request: Request,
+	options: { maxBytes?: number } = {}
+): Promise<JsonObject> {
+	const maxBytes = options.maxBytes ?? DEFAULT_MAX_JSON_BYTES;
 	const contentType = request.headers.get('content-type')?.toLowerCase() || '';
 	if (!contentType.startsWith('application/json')) throw error(415, 'JSON is required.');
 
 	const contentLength = Number(request.headers.get('content-length'));
-	if (Number.isFinite(contentLength) && contentLength > MAX_JSON_BYTES) {
+	if (Number.isFinite(contentLength) && contentLength > maxBytes) {
 		throw error(413, 'Request is too large.');
 	}
 
 	const raw = await request.text();
-	if (Buffer.byteLength(raw, 'utf8') > MAX_JSON_BYTES) throw error(413, 'Request is too large.');
+	if (Buffer.byteLength(raw, 'utf8') > maxBytes) throw error(413, 'Request is too large.');
 
 	let value: unknown;
 	try {

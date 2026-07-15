@@ -91,7 +91,7 @@
 			contentId = data.contentId;
 			series = data.series;
 			episodes = data.episodes;
-			bookmarked = syncBookmarkIdentity(contentId, key, series);
+			bookmarked = await syncBookmarkIdentity(contentId, key, series);
 			loaded = true;
 			void trackEvent({
 				type: 'detail_view',
@@ -112,8 +112,8 @@
 		}
 	}
 
-	function toggleBm() {
-		bookmarked = toggleBookmark({ contentId, detailKey, title: series, poster: posterKey, synopsis });
+	async function toggleBm() {
+		bookmarked = await toggleBookmark({ contentId, detailKey, title: series, poster: posterKey, synopsis });
 		void trackEvent({
 			type: bookmarked ? 'bookmark_add' : 'bookmark_remove',
 			contentId,

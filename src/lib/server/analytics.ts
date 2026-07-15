@@ -1,11 +1,6 @@
 import net from 'node:net';
 import { env } from '$env/dynamic/private';
-import {
-	MongoClient,
-	type AnyBulkWriteOperation,
-	type Db,
-	type Document
-} from 'mongodb';
+import { type AnyBulkWriteOperation, type Db, type Document } from 'mongodb';
 import type { AnalyticsEventInput } from '$lib/analytics';
 import {
 	ACCESS_RETENTION_MS,
@@ -20,12 +15,11 @@ import {
 	utcMinuteKey,
 	visitorHash
 } from '$lib/server/analytics-data';
+import { isMongoConfigured, mongoDb } from '$lib/server/mongo';
 
-const DATABASE_NAME = env.MONGODB_DB || 'watching_analytics';
 const ANALYTICS_ENABLED = env.ANALYTICS_ENABLED === 'true';
 const HASH_SECRET = env.ANALYTICS_HASH_SECRET || '';
 
-let clientPromise: Promise<MongoClient> | undefined;
 let indexesPromise: Promise<void> | undefined;
 
 interface RateLimitDocument extends Document {
@@ -53,31 +47,7 @@ interface DailyMetricDocument extends Document {
 export class AnalyticsRateLimitError extends Error {}
 
 export function isAnalyticsConfigured(): boolean {
-	return ANALYTICS_ENABLED && !!env.MONGODB && !!HASH_SECRET;
-}
-
-function mongoClient(): Promise<MongoClient> {
-	if (!env.MONGODB) throw new Error('MONGODB is not configured.');
-	if (!clientPromise) {
-		const client = new MongoClient(env.MONGODB, {
-			appName: 'watching-analytics',
-			ignoreUndefined: true,
-			maxPoolSize: 5,
-			minPoolSize: 0,
-			maxIdleTimeMS: 30_000,
-			serverSelectionTimeoutMS: 3_000,
-			connectTimeoutMS: 3_000
-		});
-		clientPromise = client.connect().catch((error) => {
-			clientPromise = undefined;
-			throw error;
-		});
-	}
-	return clientPromise;
-}
-
-async function analyticsDb(): Promise<Db> {
-	return (await mongoClient()).db(DATABASE_NAME);
+	return ANALYTICS_ENABLED && isMongoConfigured() && !!HASH_SECRET;
 }
 
 async function ensureIndexes(db: Db): Promise<void> {
@@ -212,7 +182,7 @@ export async function recordAnalyticsEvent(
 ): Promise<boolean> {
 	if (!isAnalyticsConfigured()) return false;
 
-	const db = await analyticsDb();
+	const db = await mongoDb();
 	await ensureIndexes(db);
 	const visitorId = visitorHash(HASH_SECRET, now, context);
 	await enforceRateLimit(db, now, visitorId);

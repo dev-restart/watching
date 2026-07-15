@@ -14,7 +14,7 @@ export class ApiError extends Error {
 	}
 }
 
-async function postJson<T>(path: string, body: object, options: RequestOptions = {}): Promise<T> {
+export async function postJson<T>(path: string, body: object, options: RequestOptions = {}): Promise<T> {
 	const response = await fetch(path, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },

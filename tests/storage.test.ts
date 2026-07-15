@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
+import 'fake-indexeddb/auto';
 import { clearBookmarks, loadBookmarks, removeBookmarks, toggleBookmark } from '../src/lib/bookmarks.ts';
 import { addHistory, clearHistory, loadHistory, removeHistory } from '../src/lib/history.ts';
 
@@ -36,8 +37,9 @@ Object.defineProperty(globalThis, 'localStorage', {
 	value: new MemoryStorage()
 });
 
-beforeEach(() => {
+beforeEach(async () => {
 	localStorage.clear();
+	await clearBookmarks();
 });
 
 test('history keeps the latest entry for the same content and episode', () => {
@@ -84,9 +86,9 @@ test('history preserves different episodes and removes selected entries in one u
 	assert.deepEqual(loadHistory().map((entry) => entry.epIndex), [1]);
 });
 
-test('bookmarks use stable content identity and support bulk removal', () => {
+test('bookmarks use stable content identity and support bulk removal', async () => {
 	assert.equal(
-		toggleBookmark({
+		await toggleBookmark({
 			contentId: 'content-a',
 			detailKey: 'random-detail-key',
 			title: 'Title A'
@@ -94,7 +96,7 @@ test('bookmarks use stable content identity and support bulk removal', () => {
 		true
 	);
 	assert.equal(
-		toggleBookmark({
+		await toggleBookmark({
 			contentId: 'content-a',
 			detailKey: 'another-detail-key',
 			title: 'Title A'
@@ -102,19 +104,35 @@ test('bookmarks use stable content identity and support bulk removal', () => {
 		false
 	);
 
-	assert.equal(loadBookmarks().length, 0);
+	assert.equal((await loadBookmarks()).length, 0);
 
-	toggleBookmark({ contentId: 'content-a', detailKey: 'key-a', title: 'Title A' });
-	toggleBookmark({ contentId: 'content-b', detailKey: 'key-b', title: 'Title B' });
-	removeBookmarks(new Set(['content-a', 'content-b']));
-	assert.deepEqual(loadBookmarks(), []);
+	await toggleBookmark({ contentId: 'content-a', detailKey: 'key-a', title: 'Title A' });
+	await toggleBookmark({ contentId: 'content-b', detailKey: 'key-b', title: 'Title B' });
+	await removeBookmarks(new Set(['content-a', 'content-b']));
+	assert.deepEqual(await loadBookmarks(), []);
 });
 
-test('clear helpers remove all persisted data', () => {
+test('clear helpers remove all persisted data', async () => {
 	addHistory({ contentId: 'content-a', detailKey: 'key-a', title: 'A', epIndex: 1 });
-	toggleBookmark({ contentId: 'content-a', detailKey: 'key-a', title: 'A' });
+	await toggleBookmark({ contentId: 'content-a', detailKey: 'key-a', title: 'A' });
 	clearHistory();
-	clearBookmarks();
+	await clearBookmarks();
 	assert.deepEqual(loadHistory(), []);
-	assert.deepEqual(loadBookmarks(), []);
+	assert.deepEqual(await loadBookmarks(), []);
+});
+
+test('legacy localStorage bookmarks migrate automatically without a count limit', async () => {
+	const legacy = Array.from({ length: 125 }, (_, index) => ({
+		id: `content-${index}`,
+		contentId: `content-${index}`,
+		detailKey: `key-${index}`,
+		title: `Title ${index}`,
+		ts: index
+	}));
+	localStorage.setItem('watching:bookmarks', JSON.stringify(legacy));
+
+	const bookmarks = await loadBookmarks();
+	assert.equal(bookmarks.length, 125);
+	assert.equal(bookmarks[0].contentId, 'content-124');
+	assert.equal(localStorage.getItem('watching:bookmarks'), null);
 });

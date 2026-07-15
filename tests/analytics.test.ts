@@ -46,6 +46,18 @@ test('analytics parser rejects unknown or malformed events', () => {
 	);
 });
 
+test('bookmark share analytics stores counts without codes or bookmark payloads', () => {
+	assert.deepEqual(
+		parseAnalyticsEvent({
+			type: 'bookmark_share_create',
+			itemCount: 125,
+			code: 'SECRET',
+			bookmarks: ['must-not-be-stored']
+		}),
+		{ type: 'bookmark_share_create', itemCount: 125 }
+	);
+});
+
 test('visitor hash is stable within a UTC day and rotates the next day', () => {
 	const context = { ip: '203.0.113.10', userAgent: 'Example Browser' };
 	const first = visitorHash('secret', new Date('2026-07-13T00:00:00Z'), context);

@@ -33,14 +33,14 @@
 				<div class="flex items-start gap-4">
 					<div class="min-w-0 flex-1">
 						<p class="font-mono text-[10px] font-semibold uppercase tracking-[0.24em] text-brand">
-							First-party analytics
+							First-party data
 						</p>
 						<h2 id="data-collection-title" class="mt-2 text-2xl font-bold tracking-tight text-white">
 							Data collection details
 						</h2>
 						<p class="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
-							Watching stores limited access and usage data to understand service reliability and
-							which searches and titles are useful.
+							Watching stores limited usage data for service analytics and temporarily stores
+							bookmark transfers when you explicitly create a share code.
 						</p>
 					</div>
 					<button
@@ -81,13 +81,15 @@
 							<li>• Search terms, result counts and selected search results</li>
 							<li>• Detail views and successful playback-session creation</li>
 							<li>• Bookmark additions or removals and history/bookmark panel opens</li>
+							<li>• Temporary bookmark-share data is deleted after its first import or within three minutes</li>
 						</ul>
 					</div>
 					<div>
 						<h3 class="text-sm font-semibold text-neutral-100">What is not collected</h3>
 						<ul class="mt-3 space-y-2 text-sm leading-5 text-neutral-400">
 							<li>• Names, email addresses or account information</li>
-							<li>• Source URLs, playback URLs, detail keys or playback keys</li>
+							<li>• Raw source URLs, playback URLs or playback keys</li>
+							<li>• Share codes or bookmark contents in analytics events</li>
 							<li>• Video duration, completion rate or activity inside the external player</li>
 						</ul>
 					</div>

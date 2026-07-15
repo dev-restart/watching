@@ -125,6 +125,9 @@ export function parseAnalyticsEvent(value: unknown): AnalyticsEventInput {
 		case 'bookmark_add':
 		case 'bookmark_remove':
 			return { type, ...contentFields(value) };
+		case 'bookmark_share_create':
+		case 'bookmark_share_import':
+			return { type, itemCount: integer(value.itemCount, 'itemCount', 1, 10_000_000) };
 		case 'operation_error': {
 			const operation = requiredString(value.operation, 'operation', 20) as AnalyticsOperation;
 			if (!['search', 'detail', 'playback'].includes(operation)) {

@@ -19,5 +19,6 @@ export type AnalyticsEventInput =
 	| (ContentEvent & { type: 'detail_view'; episodeCount: number })
 	| (ContentEvent & { type: 'play_session_created'; episodeIndex: number; episodeNo?: number | null })
 	| (ContentEvent & { type: 'bookmark_add' | 'bookmark_remove' })
+	| { type: 'bookmark_share_create' | 'bookmark_share_import'; itemCount: number }
 	| { type: 'history_open' | 'bookmarks_open' }
 	| { type: 'operation_error'; operation: AnalyticsOperation; status?: number };

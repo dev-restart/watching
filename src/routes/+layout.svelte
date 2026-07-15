@@ -15,6 +15,7 @@
 	let searchOpen = $state(false);
 	let historyOpen = $state(false);
 	let bookmarksOpen = $state(false);
+	let bookmarkImportCode = $state('');
 	let privacyOpen = $state(false);
 	let initialQuery = $state('');
 	let detail = $state<DetailTarget | null>(null);
@@ -44,7 +45,20 @@
 
 	onMount(() => {
 		void trackEvent({ type: 'visit', path: window.location.pathname });
+		const url = new URL(window.location.href);
+		const sharedCode = url.searchParams.get('bookmarkShare') || '';
+		if (/^[a-z0-9]{6}$/i.test(sharedCode)) {
+			bookmarkImportCode = sharedCode.toUpperCase();
+			bookmarksOpen = true;
+		}
 	});
+
+	function clearBookmarkImportCode() {
+		bookmarkImportCode = '';
+		const url = new URL(window.location.href);
+		url.searchParams.delete('bookmarkShare');
+		window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+	}
 
 	// Global keyboard shortcuts (ignored while typing or when a modal is open).
 	function onKeydown(e: KeyboardEvent) {
@@ -140,12 +154,19 @@
 				first-party access and usage data is collected for reliability and service analytics.
 				No liability is assumed, and availability may change or end without notice.
 			</p>
-
+			<button type="button" onclick={() => (privacyOpen = true)} class="mt-3 text-neutral-400 underline decoration-neutral-700 underline-offset-4 hover:text-neutral-200">
+				Data collection details
+			</button>
 		</div>
 	</footer>
 </div>
 
 <SearchModal open={searchOpen} initialQuery={initialQuery} onClose={() => (searchOpen = false)} />
 <HistoryModal open={historyOpen} onClose={() => (historyOpen = false)} />
-<BookmarkModal open={bookmarksOpen} onClose={() => (bookmarksOpen = false)} />
+<BookmarkModal
+	open={bookmarksOpen}
+	initialImportCode={bookmarkImportCode}
+	onImportHandled={clearBookmarkImportCode}
+	onClose={() => (bookmarksOpen = false)}
+/>
 <PrivacyModal open={privacyOpen} onClose={() => (privacyOpen = false)} />
