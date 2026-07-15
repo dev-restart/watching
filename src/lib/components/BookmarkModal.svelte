@@ -37,6 +37,7 @@
 	let busy = $state(false);
 	let errorMessage = $state('');
 	let resultMessage = $state('');
+	let listNotice = $state('');
 	let shareCode = $state('');
 	let shareExpiresAt = $state(0);
 	let remainingSeconds = $state(0);
@@ -44,6 +45,7 @@
 	let qrCanvas = $state<HTMLCanvasElement>();
 	let scannerVideo = $state<HTMLVideoElement>();
 	let scannerControls: { stop(): void } | undefined;
+	let noticeTimer: number | undefined;
 	let scanning = $state(false);
 	let handledCode = '';
 
@@ -94,6 +96,9 @@
 		busy = false;
 		errorMessage = '';
 		resultMessage = '';
+		listNotice = '';
+		if (noticeTimer) window.clearTimeout(noticeTimer);
+		noticeTimer = undefined;
 		shareCode = '';
 		shareExpiresAt = 0;
 		remainingSeconds = 0;
@@ -102,6 +107,18 @@
 
 	function normalizeCode(value: string): string {
 		return value.replace(/[^a-z0-9]/gi, '').slice(0, 6).toUpperCase();
+	}
+
+	function showImportSuccess(added: number, duplicates: number) {
+		panel = null;
+		errorMessage = '';
+		resultMessage = '';
+		listNotice = `Import complete — ${added.toLocaleString()} added · ${duplicates.toLocaleString()} duplicates skipped`;
+		if (noticeTimer) window.clearTimeout(noticeTimer);
+		noticeTimer = window.setTimeout(() => {
+			listNotice = '';
+			noticeTimer = undefined;
+		}, 5000);
 	}
 
 	function countdown(seconds: number): string {
@@ -197,7 +214,7 @@
 			const result = await importBookmarkShare(code);
 			await refresh();
 			if (result.added > 0) void trackEvent({ type: 'bookmark_share_import', itemCount: result.added });
-			resultMessage = `${result.added.toLocaleString()} added · ${result.duplicates.toLocaleString()} duplicates skipped`;
+			showImportSuccess(result.added, result.duplicates);
 			onImportHandled();
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Unable to import bookmarks.';
@@ -288,7 +305,7 @@
 			const validated = await validateBookmarkFile(data.bookmarks as Bookmark[]);
 			const result = await mergeBookmarks(validated.map((bookmark, index) => ({ ...bookmark, ts: Date.now() - index })));
 			await refresh();
-			resultMessage = `${result.added.toLocaleString()} added · ${result.duplicates.toLocaleString()} duplicates skipped`;
+			showImportSuccess(result.added, result.duplicates);
 		} catch (error) {
 			errorMessage = error instanceof Error ? error.message : 'Unable to import the bookmark file.';
 		} finally {
@@ -332,7 +349,6 @@
 					{#if bookmarks.length > 0}
 						<label class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900/70 px-2 py-1.5 text-[11px] font-medium text-neutral-300 transition hover:border-neutral-500 hover:bg-neutral-800 hover:text-white"><input type="checkbox" checked={allSelected} onchange={toggleAll} class="h-3.5 w-3.5 accent-brand" />Select all</label>
 					{/if}
-					<div class="h-0 basis-full" aria-hidden="true"></div>
 					{#if hasSel}<button type="button" onclick={removeSelected} class="shrink-0 rounded-md border border-rose-900/70 bg-rose-950/30 px-2.5 py-1.5 text-[11px] font-medium text-rose-300 transition hover:border-rose-700 hover:bg-rose-950/60">Delete ({selected.size})</button>{/if}
 					{#if bookmarks.length > 0}<button type="button" onclick={clearAll} class="shrink-0 rounded-md border border-neutral-700 bg-neutral-900/70 px-2.5 py-1.5 text-[11px] font-medium text-neutral-300 transition hover:border-neutral-500 hover:bg-neutral-800 hover:text-white">Clear all</button>{/if}
 					<button type="button" onclick={close} class="shrink-0 rounded-md border border-neutral-700 bg-neutral-900/70 px-2.5 py-1.5 text-[11px] font-medium text-neutral-300 transition hover:border-neutral-500 hover:bg-neutral-800 hover:text-white">Esc</button>
@@ -379,6 +395,12 @@
 			{/if}
 
 			<div class="min-h-[200px] flex-1 overflow-y-auto p-4 sm:p-5">
+				{#if listNotice}
+					<div class="mb-4 flex items-center gap-2 rounded-lg border border-emerald-800/70 bg-emerald-950/30 px-3 py-2.5 text-xs font-medium text-emerald-300" role="status">
+						<svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m5 12 4 4L19 6" /></svg>
+						<span>{listNotice}</span>
+					</div>
+				{/if}
 				{#if bookmarks.length === 0}
 					<div class="py-16 text-center text-sm text-neutral-600">No bookmarks yet. Import a code or JSON file to get started.</div>
 				{:else}
