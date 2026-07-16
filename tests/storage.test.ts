@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { beforeEach, test } from 'node:test';
 import 'fake-indexeddb/auto';
-import { clearBookmarks, loadBookmarks, removeBookmarks, toggleBookmark } from '../src/lib/bookmarks.ts';
+import {
+	clearBookmarks,
+	loadBookmarks,
+	mergeBookmarks,
+	removeBookmarks,
+	toggleBookmark
+} from '../src/lib/bookmarks.ts';
 import { addHistory, clearHistory, loadHistory, removeHistory } from '../src/lib/history.ts';
 
 class MemoryStorage implements Storage {
@@ -110,6 +116,24 @@ test('bookmarks use stable content identity and support bulk removal', async () 
 	await toggleBookmark({ contentId: 'content-b', detailKey: 'key-b', title: 'Title B' });
 	await removeBookmarks(new Set(['content-a', 'content-b']));
 	assert.deepEqual(await loadBookmarks(), []);
+});
+
+test('bookmark merge removes a stale legacy key when content identity becomes available', async () => {
+	await toggleBookmark({ detailKey: 'legacy-key', title: 'Same title' });
+	await mergeBookmarks([
+		{
+			id: 'content-a',
+			contentId: 'content-a',
+			detailKey: 'current-key',
+			title: 'Same title',
+			ts: Date.now()
+		}
+	]);
+
+	const bookmarks = await loadBookmarks();
+	assert.equal(bookmarks.length, 1);
+	assert.equal(bookmarks[0].id, 'content-a');
+	assert.equal(bookmarks[0].detailKey, 'current-key');
 });
 
 test('clear helpers remove all persisted data', async () => {

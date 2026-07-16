@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { fade, fly } from 'svelte/transition';
+	import { trapFocus } from '$lib/client/modal';
 
 	let { open = false, onClose = () => {} }: { open?: boolean; onClose?: () => void } = $props();
 
@@ -25,6 +26,8 @@
 		<div
 			class="max-h-full w-full max-w-3xl overflow-y-auto rounded-xl border border-neutral-800 bg-ink-soft shadow-2xl"
 			transition:fly={{ y: 18, duration: 200 }}
+			use:trapFocus
+			tabindex="-1"
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="data-collection-title"
@@ -48,8 +51,9 @@
 						onclick={onClose}
 						class="rounded-md border border-neutral-700 px-2.5 py-1.5 text-xs text-neutral-400 transition hover:border-neutral-500 hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
 						aria-label="Close data collection details"
+						title="Close (Esc)"
 					>
-						Esc
+						Close
 					</button>
 				</div>
 			</header>

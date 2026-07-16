@@ -150,13 +150,9 @@
 		<div class="mx-auto max-w-3xl text-xs leading-relaxed text-neutral-500">
 			<p class="font-semibold text-neutral-400">Disclaimer</p>
 			<p class="mt-2">
-				A search-engine demo that matches and links to titles from public sources. Limited
-				first-party access and usage data is collected for reliability and service analytics.
-				No liability is assumed, and availability may change or end without notice.
+				This platform operates strictly as a search engine tool. We do not store or host any multimedia files or personal data. All content is retrieved from third-party sources; consequently, we are not responsible for the copyright, legality, or accuracy of the linked materials. This is an experimental project and is subject to modification or termination at any time without notice.
 			</p>
-			<button type="button" onclick={() => (privacyOpen = true)} class="mt-3 text-neutral-400 underline decoration-neutral-700 underline-offset-4 hover:text-neutral-200">
-				Data collection details
-			</button>
+			
 		</div>
 	</footer>
 </div>

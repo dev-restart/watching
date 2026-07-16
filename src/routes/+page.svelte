@@ -24,7 +24,7 @@
 			Find something to watch.
 		</h1>
 		<p class="mx-auto mt-4 max-w-md text-center text-sm text-neutral-400 sm:text-base">
-			Search across series and films, then play.
+			Search across TV series and films, then start watching.
 		</p>
 
 		<div class="mx-auto mt-8 flex max-w-lg items-center gap-2">
@@ -49,7 +49,7 @@
 		</div>
 
 		<!-- Keyboard shortcuts -->
-		<div class="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-neutral-500">
+		<div class="mt-6 hidden flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-neutral-500 sm:flex">
 			<span class="hidden sm:inline uppercase tracking-wide text-neutral-600">Shortcuts</span>
 			<button
 				type="button"

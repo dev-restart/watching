@@ -6,7 +6,13 @@ const MAX = 10;
 export function loadRecentQueries(): string[] {
 	if (typeof localStorage === 'undefined') return [];
 	try {
-		return JSON.parse(localStorage.getItem(KEY) || '[]') as string[];
+		const value: unknown = JSON.parse(localStorage.getItem(KEY) || '[]');
+		if (!Array.isArray(value)) return [];
+		return value
+			.filter((query): query is string => typeof query === 'string')
+			.map((query) => query.trim())
+			.filter(Boolean)
+			.slice(0, MAX);
 	} catch {
 		return [];
 	}

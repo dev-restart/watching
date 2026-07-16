@@ -3,10 +3,18 @@ import { resolveStream } from '$lib/server/catalog';
 import { openUrl } from '$lib/server/tokens';
 import { assertSourceUrl } from '$lib/server/url-policy';
 import { readJsonObject, requireString } from '$lib/server/api-request';
+import { ApiRateLimitError, enforceApiRateLimit } from '$lib/server/api-rate-limit';
 import type { RequestHandler } from './$types';
 
 /** POST { key } -> StreamSession { full, expires } */
-export const POST: RequestHandler = async ({ request }) => {
+export const POST: RequestHandler = async ({ request, getClientAddress }) => {
+	try {
+		await enforceApiRateLimit('playback', getClientAddress);
+	} catch (cause) {
+		if (cause instanceof ApiRateLimitError) throw error(429, 'Too many playback requests. Try again shortly.');
+		throw cause;
+	}
+
 	const body = await readJsonObject(request);
 	const key = requireString(body, 'key', { maxLength: 4096, label: 'Key' });
 

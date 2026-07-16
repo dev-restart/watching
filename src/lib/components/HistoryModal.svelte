@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { fade, fly } from 'svelte/transition';
 	import { getAppNavigation } from '$lib/app-navigation';
+	import { trapFocus } from '$lib/client/modal';
 	import { loadHistory, removeHistory, clearHistory, formatWhen, type WatchEntry } from '$lib/history';
 	import { imgUrl } from '$lib/img';
 
@@ -54,6 +55,7 @@
 		selected = new Set();
 	}
 	function clearAll() {
+		if (!window.confirm('Clear all watch history? This cannot be undone.')) return;
 		clearHistory();
 		history = [];
 		selected = new Set();
@@ -68,7 +70,7 @@
 		});
 	}
 	function onKey(e: KeyboardEvent) {
-		if (e.key === 'Escape') onClose();
+		if (open && e.key === 'Escape') onClose();
 	}
 	function backdrop(e: MouseEvent) {
 		if (e.target === e.currentTarget) onClose();
@@ -88,6 +90,8 @@
 		<div
 			class="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-neutral-800 bg-ink-soft shadow-2xl"
 			transition:fly={{ y: -20, duration: 200 }}
+			use:trapFocus
+			tabindex="-1"
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="history-title"
@@ -101,6 +105,7 @@
 						<input
 							bind:value={query}
 							placeholder="Filter..."
+							aria-label="Filter watch history"
 							class="w-24 bg-transparent px-1.5 py-1 text-xs text-neutral-200 outline-none placeholder:text-neutral-600 sm:w-32"
 						/>
 						<div class="flex items-center text-[11px] text-neutral-500">
@@ -132,7 +137,7 @@
 							Clear all
 						</button>
 					{/if}
-					<button type="button" onclick={onClose} class="rounded px-2.5 py-1 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200">Esc</button>
+					<button type="button" onclick={onClose} title="Close (Esc)" class="rounded px-2.5 py-1 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200">Close</button>
 				</div>
 			</div>
 
@@ -151,7 +156,7 @@
 									checked={selected.has(e.id)}
 									onchange={() => toggle(e.id)}
 									class="absolute left-2 top-2 z-10 h-5 w-5 accent-brand"
-									aria-label="select"
+									aria-label={`Select ${e.title}`}
 								/>
 								<button
 									type="button"

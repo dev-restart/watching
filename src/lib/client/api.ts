@@ -1,28 +1,46 @@
 import type { EpisodeList, SearchResponse, StreamSession } from '$lib/types';
+import { API_ACCESS_REFRESHED_CODE } from '../api-access.ts';
 
 interface RequestOptions {
 	signal?: AbortSignal;
 }
 
 export class ApiError extends Error {
-	constructor(
-		message: string,
-		readonly status: number
-	) {
+	readonly status: number;
+
+	constructor(message: string, status: number) {
 		super(message);
 		this.name = 'ApiError';
+		this.status = status;
 	}
 }
 
-export async function postJson<T>(path: string, body: object, options: RequestOptions = {}): Promise<T> {
+async function requestPostJson<T>(
+	path: string,
+	body: object,
+	options: RequestOptions,
+	canRetryApiAccess: boolean
+): Promise<T> {
 	const response = await fetch(path, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify(body),
-		signal: options.signal
+		signal: options.signal,
+		credentials: 'same-origin'
 	});
 
 	const data: unknown = await response.json().catch(() => null);
+	if (
+		canRetryApiAccess &&
+		response.status === 401 &&
+		data &&
+		typeof data === 'object' &&
+		'code' in data &&
+		data.code === API_ACCESS_REFRESHED_CODE
+	) {
+		return requestPostJson<T>(path, body, options, false);
+	}
+
 	if (!response.ok) {
 		const message =
 			data && typeof data === 'object' && 'message' in data && typeof data.message === 'string'
@@ -32,6 +50,10 @@ export async function postJson<T>(path: string, body: object, options: RequestOp
 	}
 
 	return data as T;
+}
+
+export function postJson<T>(path: string, body: object, options: RequestOptions = {}): Promise<T> {
+	return requestPostJson<T>(path, body, options, true);
 }
 
 export function searchTitles(query: string, signal?: AbortSignal): Promise<SearchResponse> {

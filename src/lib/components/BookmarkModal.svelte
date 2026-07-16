@@ -3,6 +3,7 @@
 	import { fade, fly } from 'svelte/transition';
 	import { getAppNavigation } from '$lib/app-navigation';
 	import { trackEvent } from '$lib/client/analytics';
+	import { trapFocus } from '$lib/client/modal';
 	import {
 		clearBookmarks,
 		loadBookmarks,
@@ -150,6 +151,7 @@
 	}
 
 	async function clearAll() {
+		if (!window.confirm('Clear all bookmarks? This cannot be undone.')) return;
 		for (const bookmark of bookmarks) {
 			if (bookmark.contentId) void trackEvent({ type: 'bookmark_remove', contentId: bookmark.contentId, title: bookmark.title });
 		}
@@ -324,7 +326,7 @@
 	}
 
 	function onKey(event: KeyboardEvent) {
-		if (event.key === 'Escape') close();
+		if (open && event.key === 'Escape') close();
 	}
 
 	function backdrop(event: MouseEvent) {
@@ -337,7 +339,7 @@
 {#if open}
 	<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 	<div class="fixed inset-0 z-50 flex items-start justify-center bg-black/85 p-4 backdrop-blur-sm sm:p-8" transition:fade={{ duration: 150 }} onclick={backdrop} role="presentation">
-		<div class="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-neutral-800 bg-ink-soft shadow-2xl" transition:fly={{ y: -20, duration: 200 }} role="dialog" aria-modal="true" aria-labelledby="bookmarks-title">
+		<div class="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-neutral-800 bg-ink-soft shadow-2xl" transition:fly={{ y: -20, duration: 200 }} use:trapFocus tabindex="-1" role="dialog" aria-modal="true" aria-labelledby="bookmarks-title">
 			<div class="flex shrink-0 flex-col gap-3 border-b border-neutral-800 px-5 py-4">
 				<div class="flex items-center gap-3">
 					<h2 id="bookmarks-title" class="text-base font-semibold text-neutral-100">Bookmarks</h2>
@@ -351,7 +353,7 @@
 					{/if}
 					{#if hasSel}<button type="button" onclick={removeSelected} class="shrink-0 rounded-md border border-rose-900/70 bg-rose-950/30 px-2.5 py-1.5 text-[11px] font-medium text-rose-300 transition hover:border-rose-700 hover:bg-rose-950/60">Delete ({selected.size})</button>{/if}
 					{#if bookmarks.length > 0}<button type="button" onclick={clearAll} class="shrink-0 rounded-md border border-neutral-700 bg-neutral-900/70 px-2.5 py-1.5 text-[11px] font-medium text-neutral-300 transition hover:border-neutral-500 hover:bg-neutral-800 hover:text-white">Clear all</button>{/if}
-					<button type="button" onclick={close} class="shrink-0 rounded-md border border-neutral-700 bg-neutral-900/70 px-2.5 py-1.5 text-[11px] font-medium text-neutral-300 transition hover:border-neutral-500 hover:bg-neutral-800 hover:text-white">Esc</button>
+					<button type="button" onclick={close} title="Close (Esc)" class="shrink-0 rounded-md border border-neutral-700 bg-neutral-900/70 px-2.5 py-1.5 text-[11px] font-medium text-neutral-300 transition hover:border-neutral-500 hover:bg-neutral-800 hover:text-white">Close</button>
 				</div>
 			</div>
 
@@ -402,7 +404,7 @@
 					</div>
 				{/if}
 				{#if bookmarks.length === 0}
-					<div class="py-16 text-center text-sm text-neutral-600">No bookmarks yet. Import a code or JSON file to get started.</div>
+					<div class="py-16 text-center text-sm text-neutral-600">No bookmarks yet. Enter a share code or import a JSON file to get started.</div>
 				{:else}
 					<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 						{#each visibleBookmarks as bookmark (bookmark.id)}

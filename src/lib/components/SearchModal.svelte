@@ -4,6 +4,7 @@
 	import { getAppNavigation } from '$lib/app-navigation';
 	import { ApiError, isAbortError, searchTitles } from '$lib/client/api';
 	import { trackEvent } from '$lib/client/analytics';
+	import { trapFocus } from '$lib/client/modal';
 	import type { SearchInputMethod } from '$lib/analytics';
 	import type { SearchResult } from '$lib/types';
 	import { imgUrl } from '$lib/img';
@@ -77,9 +78,12 @@
 	});
 
 	async function runSearch(searchQuery: string, inputMethod: SearchInputMethod) {
+		clearTimeout(timer);
+		timer = undefined;
 		const q = searchQuery.trim();
 		if (!q) {
 			results = [];
+			errorMsg = '';
 			touched = false;
 			loading = false;
 			return;
@@ -124,8 +128,25 @@
 		searchVersion += 1;
 		searchController?.abort();
 		loading = false;
+		errorMsg = '';
 		const nextQuery = query;
+		if (!nextQuery.trim()) {
+			results = [];
+			touched = false;
+			activeCat = 'All';
+			return;
+		}
 		timer = setTimeout(() => void runSearch(nextQuery, 'typed'), 300);
+	}
+
+	function close() {
+		clearTimeout(timer);
+		timer = undefined;
+		searchVersion += 1;
+		searchController?.abort();
+		recognition?.abort();
+		listening = false;
+		onClose();
 	}
 
 	function pick(r: SearchResult) {
@@ -135,7 +156,7 @@
 			title: r.title,
 			category: r.category || undefined
 		});
-		onClose();
+		close();
 		nav.showDetail({ detailKey: r.detailKey, poster: r.thumbnail, synopsis: r.synopsis });
 	}
 
@@ -145,10 +166,10 @@
 	}
 
 	function onKey(e: KeyboardEvent) {
-		if (e.key === 'Escape') onClose();
+		if (open && e.key === 'Escape') close();
 	}
 	function backdrop(e: MouseEvent) {
-		if (e.target === e.currentTarget) onClose();
+		if (e.target === e.currentTarget) close();
 	}
 
 	// --- Voice search via Web Speech API (shown only when the browser supports it) ---
@@ -170,7 +191,8 @@
 		rec.maxAlternatives = 1;
 		rec.onresult = (e) => {
 			const text = e.results?.[0]?.[0]?.transcript;
-			if (text) {
+			if (text && open) {
+				clearTimeout(timer);
 				query = text;
 				void runSearch(text, 'voice');
 			}
@@ -216,41 +238,50 @@
 		<div
 			class="flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-neutral-800 bg-ink-soft shadow-2xl"
 			transition:fly={{ y: -20, duration: 200 }}
+			use:trapFocus
+			tabindex="-1"
 			role="dialog"
 			aria-modal="true"
 			aria-label="Search titles"
 		>
-			<div class="flex shrink-0 items-center gap-4 border-b border-neutral-800 px-6 py-5">
-				<svg class="h-7 w-7 shrink-0 text-neutral-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<circle cx="11" cy="11" r="7" />
-					<path d="m21 21-4.3-4.3" />
-				</svg>
-				<input
-					bind:this={inputEl}
-					bind:value={query}
-					oninput={onInput}
-					placeholder="Search titles..."
-					class="flex-1 bg-transparent py-1 text-lg text-neutral-100 outline-none placeholder:text-neutral-500 sm:text-xl"
-				/>
-				{#if speechSupported}
-					<button
-						type="button"
-						onclick={toggleVoice}
-						title="Voice search"
-						class="rounded-md p-1.5 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100 {listening ? 'animate-pulse text-brand' : ''}"
-					>
-						<svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-							<path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
-						</svg>
-					</button>
-				{/if}
+			<div class="flex shrink-0 items-center gap-2 border-b border-neutral-800 px-3 py-3 sm:px-6 sm:py-5">
+				<div class="flex h-11 min-w-0 flex-1 items-center rounded-lg border border-neutral-700 bg-neutral-900/70 px-2.5 transition focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20">
+					<svg class="h-5 w-5 shrink-0 text-neutral-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<circle cx="11" cy="11" r="7" />
+						<path d="m21 21-4.3-4.3" />
+					</svg>
+					<input
+						bind:this={inputEl}
+						bind:value={query}
+						oninput={onInput}
+						placeholder="Search titles..."
+						aria-label="Search titles"
+						class="h-full min-w-0 flex-1 border-0 bg-transparent px-2 py-0 text-base text-neutral-100 outline-none placeholder:text-neutral-500 focus:ring-0 sm:text-xl"
+					/>
+					{#if speechSupported}
+						<button
+							type="button"
+							onclick={toggleVoice}
+							title="Voice search"
+							aria-label="Voice search"
+							aria-pressed={listening}
+							class="grid h-9 w-9 shrink-0 place-items-center rounded-md text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100 {listening ? 'animate-pulse text-brand' : ''}"
+						>
+							<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+								<path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4M8 23h8" />
+							</svg>
+						</button>
+					{/if}
+				</div>
 				<button
 					type="button"
-					onclick={onClose}
-					class="rounded px-2.5 py-1 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200"
+					onclick={close}
+					aria-label="Cancel search"
+					title="Cancel (Esc)"
+					class="h-11 shrink-0 rounded-md px-1.5 text-sm font-medium text-neutral-300 transition hover:bg-neutral-800 hover:text-neutral-100 sm:px-2.5"
 				>
-					Esc
+					Cancel
 				</button>
 			</div>
 
@@ -285,7 +316,7 @@
 						</div>
 					{/if}
 					<ul>
-						{#each filtered as r (r.contentId)}
+						{#each filtered as r (r.detailKey)}
 							<li>
 								<button
 									type="button"

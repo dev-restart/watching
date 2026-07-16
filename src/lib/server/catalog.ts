@@ -51,7 +51,8 @@ const AJAX_HEADERS = {
 	'Sec-Fetch-Site': 'same-origin'
 };
 
-const MAX_RETRIES = 5;
+const MAX_RETRIES = 3;
+const REQUEST_TIMEOUT_MS = 12_000;
 
 export class CatalogError extends Error {}
 
@@ -64,9 +65,12 @@ async function request(url: string, init: RequestInit = {}): Promise<Response> {
 	let lastErr: unknown;
 	for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
 		try {
-			const res = await fetch(url, init);
+			const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+			const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+			const res = await fetch(url, { ...init, signal });
 			if (res.status === 429) {
 				lastErr = new CatalogError('Upstream rate limit reached.');
+				await res.body?.cancel();
 				if (attempt < MAX_RETRIES - 1) {
 					await sleep((2 ** attempt + Math.random()) * 1000);
 				}
@@ -75,6 +79,7 @@ async function request(url: string, init: RequestInit = {}): Promise<Response> {
 			return res;
 		} catch (err) {
 			lastErr = err;
+			if (init.signal?.aborted) throw err;
 			if (attempt < MAX_RETRIES - 1) await sleep(1500 * (attempt + 1));
 		}
 	}

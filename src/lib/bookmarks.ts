@@ -144,9 +144,20 @@ async function writeMerged(db: IDBDatabase, incoming: Bookmark[]): Promise<Bookm
 		}
 	}
 
+	// Canonicalize the complete list before writing. When a legacy bookmark gains a
+	// contentId its primary key changes; clearing first prevents the old key from
+	// surviving as a duplicate IndexedDB record.
+	const canonical: Bookmark[] = [];
+	for (const item of merged) {
+		const index = canonical.findIndex((existing) => sameBookmark(existing, item));
+		if (index >= 0) canonical[index] = mergeFields(canonical[index], item);
+		else canonical.push(item);
+	}
+
 	const transaction = db.transaction(STORE_NAME, 'readwrite');
 	const store = transaction.objectStore(STORE_NAME);
-	for (const item of merged) store.put(stored(item));
+	store.clear();
+	for (const item of canonical) store.put(stored(item));
 	await transactionDone(transaction);
 	return { added, duplicates, invalid };
 }

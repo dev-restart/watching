@@ -293,7 +293,9 @@
 						title={playing.title}
 						class="absolute inset-0 h-full w-full"
 						scrolling="no"
-						allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+						allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+						sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-presentation"
+						referrerpolicy="no-referrer"
 						allowfullscreen
 					></iframe>
 				</div>
