@@ -1,6 +1,9 @@
 <script lang="ts">
 	import './layout.css';
 	import { onMount } from 'svelte';
+	import { afterNavigate, replaceState } from '$app/navigation';
+	import { page } from '$app/state';
+	import { readDetailShare, withoutDetailShare } from '$lib/client/detail-sharing';
 	import favicon from '$lib/assets/favicon.png';
 	import { setAppNavigation, type AppNavigation, type DetailTarget } from '$lib/app-navigation';
 	import { trackEvent } from '$lib/client/analytics';
@@ -19,6 +22,8 @@
 	let privacyOpen = $state(false);
 	let initialQuery = $state('');
 	let detail = $state<DetailTarget | null>(null);
+	let shareLinkError = $state('');
+	let detailFromShare = false;
 
 	const nav: AppNavigation = {
 		openSearch: (q = '') => {
@@ -35,9 +40,11 @@
 			void trackEvent({ type: 'bookmarks_open' });
 		},
 		showDetail: (target) => {
+			clearDetailLink();
 			detail = target;
 		},
 		goHome: () => {
+			clearDetailLink();
 			detail = null;
 		}
 	};
@@ -45,6 +52,11 @@
 
 	onMount(() => {
 		void trackEvent({ type: 'visit', path: window.location.pathname });
+	});
+
+	// Handles a fresh visit as well as client-side navigation and browser Back/Forward.
+	afterNavigate(() => {
+		if (openDetailShare()) return;
 		const url = new URL(window.location.href);
 		const sharedCode = url.searchParams.get('bookmarkShare') || '';
 		if (/^[a-z0-9]{6}$/i.test(sharedCode)) {
@@ -53,19 +65,56 @@
 		}
 	});
 
+	function openDetailShare(): boolean {
+		const target = readDetailShare(window.location.hash);
+		if (target.kind === 'none') {
+			if (detailFromShare) {
+				detail = null;
+				shareLinkError = '';
+				detailFromShare = false;
+			}
+			return false;
+		}
+		detailFromShare = true;
+		searchOpen = false;
+		historyOpen = false;
+		bookmarksOpen = false;
+		privacyOpen = false;
+		bookmarkImportCode = '';
+		if (target.kind === 'invalid') {
+			detail = null;
+			shareLinkError = 'This share link is invalid or incomplete. Ask the sender to copy it again.';
+			return true;
+		}
+		shareLinkError = '';
+		if (detail?.detailKey !== target.detailKey) {
+			// Do not import bookmarks or auto-play just because a shared link was opened.
+			detail = { detailKey: target.detailKey };
+		}
+		return true;
+	}
+
+	function clearDetailLink() {
+		detailFromShare = false;
+		shareLinkError = '';
+		const url = withoutDetailShare(window.location.href);
+		if (url.href !== window.location.href) replaceState(url, page.state);
+	}
+
 	function clearBookmarkImportCode() {
 		bookmarkImportCode = '';
 		const url = new URL(window.location.href);
 		url.searchParams.delete('bookmarkShare');
-		window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+		replaceState(url, page.state);
 	}
 
 	// Global keyboard shortcuts (ignored while typing or when a modal is open).
 	function onKeydown(e: KeyboardEvent) {
+		if (e.defaultPrevented) return;
 		const t = e.target as HTMLElement | null;
 		if (t && (/input|textarea|select/i.test(t.tagName) || t.isContentEditable)) return;
 		if (e.metaKey || e.ctrlKey || e.altKey) return;
-		if (searchOpen || historyOpen || bookmarksOpen || privacyOpen) return;
+		if (searchOpen || historyOpen || bookmarksOpen || privacyOpen || document.querySelector('[role="dialog"][aria-modal="true"]')) return;
 		if (e.key === '/') {
 			e.preventDefault();
 			nav.openSearch();
@@ -84,7 +133,7 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<svelte:window onkeydown={onKeydown} />
+<svelte:window onkeydown={onKeydown} onhashchange={openDetailShare} />
 
 <div class="flex min-h-screen flex-col bg-ink text-neutral-100">
 	<header class="sticky top-0 z-40 border-b border-neutral-800/60 bg-ink/90 backdrop-blur">
@@ -133,16 +182,23 @@
 	</header>
 
 	<main class="flex-1">
-		{#if detail === null}
+		{#if shareLinkError}
+			<div class="mx-auto max-w-3xl px-4 py-24 text-center">
+				<p class="rounded-lg border border-rose-900/60 bg-rose-950/30 px-4 py-4 text-sm text-rose-200" role="alert">{shareLinkError}</p>
+				<button type="button" onclick={nav.goHome} class="mt-4 rounded-md bg-brand px-5 py-2 text-sm font-semibold text-white hover:bg-brand-dark">Back to home</button>
+			</div>
+		{:else if detail === null}
 			{@render children()}
 		{:else}
-			<DetailView
-				detailKey={detail.detailKey}
-				initialPoster={detail.poster}
-				initialSynopsis={detail.synopsis}
-				autoPlayEpIndex={detail.autoPlayEpIndex}
-				onBack={nav.goHome}
-			/>
+			{#key detail.detailKey}
+				<DetailView
+					detailKey={detail.detailKey}
+					initialPoster={detail.poster}
+					initialSynopsis={detail.synopsis}
+					autoPlayEpIndex={detail.autoPlayEpIndex}
+					onBack={nav.goHome}
+				/>
+			{/key}
 		{/if}
 	</main>
 

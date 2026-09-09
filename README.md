@@ -31,6 +31,27 @@ Extras:
 - **Film** — press `Play` to start.
 - Synopsis, poster, and background image are shown.
 - The bookmark icon next to the title saves/removes the title.
+- The **Share** icon beside it opens a dialog with the video link and a **Copy** button.
+
+### Complete episode lists
+
+The source's bottom list initially contains at most 60 rows. When its inline list script advertises pagination, the server reads that list's `total` and calls `/bbs/get_episode_list.php` with `bo_table`, `wr_id`, `offset` and `limit=60`. This is the list endpoint, not the single-episode `/bbs/get_episode.php` playback endpoint. The source hostname and series identifiers come from the already validated detail URL; no new environment setting is required.
+
+For a 112-episode title, the first detail request combines the initial 60 rows with the remaining 52 from `offset=60`, deduplicates by episode ID, and returns the existing oldest-first order. The hidden player overlay is not treated as a complete list. Upstream scripts are parsed as text, never executed.
+
+Each request fetches at most five additional list pages with a 20-second batch budget. Larger or partially unavailable lists show `loaded / total` and **Load earlier episodes** / **Retry earlier episodes** controls above and below the grid. Continuation uses the returned row offset and does not discard previously loaded episodes or replace their playback tokens. A network failure or repeated/empty premature page leaves a retryable partial result instead of incorrectly declaring the loaded rows to be the whole catalog.
+
+### Share a video
+
+Click **Share**, then **Copy**. The dialog closes only after copying succeeds, and the detail page shows `Link copied.` If automatic copying fails, the dialog stays open with an error and a selectable URL. `Esc`, the close button, and the backdrop also dismiss the dialog.
+
+Send the copied app link to another person. Opening it loads the title and episode list directly through the existing detail API, without entering a search, importing bookmarks, or starting playback automatically. The recipient can choose an episode or press `Play` normally.
+
+Ordinary search/detail navigation still uses in-memory state without changing the address. Shared links use `#watch=<opaque-detail-key>`; the fragment remains while viewing that shared detail so refresh works, and is removed when returning home or selecting another title. Existing `?bookmarkShare=...` import links remain separate.
+
+The link contains the encrypted detail key, not the original source URL, a playback session, browsing history, or the sender's bookmarks. No new database collection or environment setting is needed. These links have no separate short-lived share-code expiry, but changing `PLAYER_TOKEN_SECRET` or removing the source content can invalidate them.
+
+Use the deployed public app address to generate links for other people. A link created on `localhost` is only suitable for local testing. Modern clipboard access requires a supported secure browser context; a legacy copy fallback is attempted before showing the manual-copy error.
 
 ### Playback
 
@@ -54,6 +75,18 @@ Open via the **Bookmarks** button.
 - Save titles from the detail page using the bookmark icon.
 - Click a title to open its detail page.
 - Select via checkbox and `Delete`, or `Clear all`.
+
+## Verification
+
+```bash
+pnpm test
+pnpm check
+pnpm build
+```
+
+`tests/detail-sharing.test.ts` covers share-link parsing and cleanup, fresh-recipient API access with mocked responses, and clipboard success/failure paths. For browser smoke testing, copy a detail link into a private window, refresh it, return home, and confirm ordinary search plus bookmark imports still work. Also check the modal on a narrow mobile viewport and with clipboard permission denied.
+
+Episode pagination regression tests are in `tests/episode-list.test.ts` and `tests/episode-pagination.test.ts`. They use synthetic HTML/JSON matching the supplied source template, including the 60 + 52 scenario, and mocked network responses. They also cover continuation limits, partial failures/retry offsets, deduplication, cancellation, and cross-host/cross-series link rejection. They do not constitute a live upstream or browser playback test.
 
 ## Keyboard shortcuts
 

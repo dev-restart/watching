@@ -9,6 +9,7 @@
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "node --experimental-strip-types --test tests/*.test.ts",
+		"inspect:episodes": "node --experimental-strip-types tests/inspect-episodes.ts https://tvmon1.com/sisa/2829/406779948",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch"
 	},

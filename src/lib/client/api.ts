@@ -1,5 +1,6 @@
 import type { EpisodeList, SearchResponse, StreamSession } from '$lib/types';
 import { API_ACCESS_REFRESHED_CODE } from '../api-access.ts';
+import { isEpisodeOffset } from '../episode-pagination.ts';
 
 interface RequestOptions {
 	signal?: AbortSignal;
@@ -62,6 +63,11 @@ export function searchTitles(query: string, signal?: AbortSignal): Promise<Searc
 
 export function loadEpisodes(key: string, signal?: AbortSignal): Promise<EpisodeList> {
 	return postJson<EpisodeList>('/api/episodes', { key }, { signal });
+}
+
+export function loadMoreEpisodes(key: string, offset: number, signal?: AbortSignal): Promise<EpisodeList> {
+	if (!isEpisodeOffset(offset)) return Promise.reject(new Error('Invalid episode list offset.'));
+	return postJson<EpisodeList>('/api/episodes', { key, offset }, { signal });
 }
 
 export function createPlaybackSession(key: string, signal?: AbortSignal): Promise<StreamSession> {

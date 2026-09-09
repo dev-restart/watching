@@ -2,12 +2,14 @@
 	import { tick } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import type { Episode, StreamSession } from '$lib/types';
-	import { ApiError, isAbortError, loadEpisodes } from '$lib/client/api';
+	import { ApiError, isAbortError, loadEpisodes, loadMoreEpisodes } from '$lib/client/api';
+	import { mergeEpisodes } from '$lib/episode-pagination';
 	import { trackEvent } from '$lib/client/analytics';
 	import { getOrFetchSession } from '$lib/session';
 	import { imgUrl } from '$lib/img';
 	import { addHistory } from '$lib/history';
 	import { syncBookmarkIdentity, toggleBookmark } from '$lib/bookmarks';
+	import DetailShareModal from '$lib/components/DetailShareModal.svelte';
 
 	let {
 		detailKey = '',
@@ -29,18 +31,29 @@
 	let contentId = $state('');
 	let episodes = $state<Episode[]>([]);
 	let loaded = $state(false);
+	let episodeTotal = $state<number | null>(null);
+	let nextEpisodeOffset = $state<number | null>(null);
+	let moreEpisodesLoading = $state(false);
+	let episodeListWarning = $state('');
+	let episodeGrid = $state<HTMLUListElement>();
+	let detailSignal: AbortSignal | undefined;
+	const episodeCountLabel = $derived(episodeTotal !== null
+		? `${episodes.length} / ${episodeTotal} loaded`
+		: `${episodes.length} loaded`);
 
 	type NowPlaying = { session: StreamSession; title: string; playKey: string };
 	let playing = $state<NowPlaying | null>(null);
 	let pendingKey = $state<string | null>(null);
 	let bookmarked = $state(false);
+	let shareOpen = $state(false);
+	let shareNotice = $state('');
 	let lastFailedEp = $state<Episode | null>(null);
 
 	let posterKey = $state('');
 	let synopsis = $state('');
 	let posterUrl = $derived(posterKey ? imgUrl(posterKey) : '');
 
-	const isSeries = $derived(episodes.some((e) => e.no !== null) || episodes.length > 1);
+	const isSeries = $derived((episodeTotal ?? 0) > 1 || episodes.some((e) => e.no !== null) || episodes.length > 1);
 	const heroThumb = $derived(episodes[0]?.thumbnail ?? '');
 
 	$effect(() => {
@@ -72,6 +85,13 @@
 		initialDescription: string,
 		signal: AbortSignal
 	) {
+		detailSignal = signal;
+		episodeTotal = null;
+		nextEpisodeOffset = null;
+		moreEpisodesLoading = false;
+		episodeListWarning = '';
+		shareOpen = false;
+		shareNotice = '';
 		posterKey = initialPosterKey;
 		synopsis = initialDescription;
 		bookmarked = false;
@@ -90,8 +110,14 @@
 			if (signal.aborted) return;
 			contentId = data.contentId;
 			series = data.series;
-			episodes = data.episodes;
-			bookmarked = await syncBookmarkIdentity(contentId, key, series);
+			episodes = mergeEpisodes([], data.episodes);
+			episodeTotal = data.pagination ? data.pagination.total : episodes.length;
+			nextEpisodeOffset = data.pagination?.nextOffset ?? null;
+			episodeListWarning = data.pagination?.warning ?? '';
+			if (!posterKey) posterKey = data.episodes[0]?.thumbnail ?? '';
+			const isBookmarked = await syncBookmarkIdentity(contentId, key, series);
+			if (signal.aborted) return;
+			bookmarked = isBookmarked;
 			loaded = true;
 			void trackEvent({
 				type: 'detail_view',
@@ -109,6 +135,41 @@
 			});
 		} finally {
 			if (!signal.aborted) loading = false;
+		}
+	}
+
+	async function loadEarlierEpisodes() {
+		const signal = detailSignal;
+		const offset = nextEpisodeOffset;
+		if (!loaded || moreEpisodesLoading || offset === null || !signal || signal.aborted) return;
+		moreEpisodesLoading = true;
+		episodeListWarning = '';
+		try {
+			const data = await loadMoreEpisodes(detailKey, offset, signal);
+			if (signal.aborted) return;
+			if (data.contentId !== contentId) throw new Error('The episode list does not match this title.');
+			const merged = mergeEpisodes(episodes, data.episodes);
+			const next = data.pagination?.nextOffset ?? null;
+			if (next !== null && (next <= offset || merged.length === episodes.length)) {
+				throw new Error('No additional episodes were returned. Retry in a moment.');
+			}
+			// Earlier episodes sort above the current cards. Preserve a visible card's position.
+			const anchor = Array.from(episodeGrid?.querySelectorAll<HTMLElement>('[data-episode-index]') ?? [])
+				.find((node) => { const rect = node.getBoundingClientRect(); return rect.top >= 0 && rect.top < window.innerHeight; });
+			const previousTop = anchor?.getBoundingClientRect().top;
+			episodes = merged;
+			episodeTotal = data.pagination?.total ?? episodeTotal;
+			nextEpisodeOffset = next;
+			episodeListWarning = data.pagination?.warning ?? '';
+			await tick();
+			if (!signal.aborted && anchor?.isConnected && previousTop !== undefined) {
+				window.scrollBy(0, anchor.getBoundingClientRect().top - previousTop);
+			}
+		} catch (error) {
+			if (signal.aborted || isAbortError(error)) return;
+			episodeListWarning = error instanceof Error ? error.message : 'Unable to load earlier episodes. Please retry.';
+		} finally {
+			if (!signal.aborted) moreEpisodesLoading = false;
 		}
 	}
 
@@ -169,6 +230,15 @@
 	<title>{series || 'Details'} — Watching</title>
 </svelte:head>
 
+{#if shareOpen}
+	<DetailShareModal
+		{detailKey}
+		title={series}
+		onClose={() => (shareOpen = false)}
+		onCopied={() => (shareNotice = 'Link copied.')}
+	/>
+{/if}
+
 {#if loading}
 	<!-- skeleton -->
 	<div class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
@@ -227,25 +297,44 @@
 			>
 				← Back
 			</button>
-			<div class="flex items-start gap-4">
-				<h1 class="max-w-3xl flex-1 text-3xl font-extrabold tracking-tight sm:text-5xl">{series}</h1>
-				<button
-					type="button"
-					onclick={toggleBm}
-					title={bookmarked ? 'Remove bookmark' : 'Add bookmark'}
-					class="mt-1 shrink-0 rounded-full border border-neutral-700 bg-neutral-900/60 p-2.5 text-neutral-300 transition hover:border-brand hover:text-brand {bookmarked ? 'border-brand text-brand' : ''}"
-				>
-					<svg class="h-5 w-5" viewBox="0 0 24 24" fill={bookmarked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2">
-						<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
-					</svg>
-				</button>
+			<div class="flex items-start gap-3 sm:gap-4">
+				<h1 class="min-w-0 max-w-3xl flex-1 break-words text-3xl font-extrabold tracking-tight sm:text-5xl">{series}</h1>
+				<div class="mt-1 flex shrink-0 items-center gap-2">
+					<button
+						type="button"
+						onclick={toggleBm}
+						title={bookmarked ? 'Remove bookmark' : 'Add bookmark'}
+						aria-label={bookmarked ? 'Remove bookmark' : 'Add bookmark'}
+						aria-pressed={bookmarked}
+						class="rounded-full border border-neutral-700 bg-neutral-900/60 p-2.5 text-neutral-300 transition hover:border-brand hover:text-brand {bookmarked ? 'border-brand text-brand' : ''}"
+					>
+						<svg class="h-5 w-5" viewBox="0 0 24 24" fill={bookmarked ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" aria-hidden="true">
+							<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+						</svg>
+					</button>
+					<button
+						type="button"
+						onclick={() => { shareNotice = ''; shareOpen = true; }}
+						title="Share video"
+						aria-label="Share video"
+						aria-haspopup="dialog"
+						class="rounded-full border border-neutral-700 bg-neutral-900/60 p-2.5 text-neutral-300 transition hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-brand"
+					>
+						<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+							<circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.6 10.5 6.8-4M8.6 13.5l6.8 4" />
+						</svg>
+					</button>
+				</div>
 			</div>
+			{#if shareNotice}
+				<p class="mt-3 text-sm text-emerald-300" role="status">{shareNotice}</p>
+			{/if}
 			{#if synopsis}
 				<p class="mt-3 max-w-2xl text-sm leading-relaxed text-neutral-300 sm:text-base">{synopsis}</p>
 			{/if}
 			<div class="mt-3 flex items-center gap-3 text-sm text-neutral-400">
 				{#if isSeries}
-					<span>{episodes.length} episodes</span>
+					<span>{nextEpisodeOffset !== null ? episodeCountLabel : `${episodes.length} episodes`}</span>
 				{:else}
 					<span>Film</span>
 				{/if}
@@ -321,13 +410,19 @@
 		{/if}
 
 		{#if isSeries}
-			<div class="mb-4 flex items-baseline gap-3">
+			<div class="mb-4 flex flex-wrap items-baseline gap-3">
 				<h2 class="text-xl font-bold">Episodes</h2>
-				<span class="text-sm text-neutral-500">{episodes.length} total</span>
+				<span class="text-sm text-neutral-500" role="status">{nextEpisodeOffset !== null || (episodeTotal !== null && episodeTotal !== episodes.length) ? episodeCountLabel : `${episodes.length} total`}</span>
+				{#if nextEpisodeOffset !== null}
+					<button type="button" onclick={loadEarlierEpisodes} disabled={moreEpisodesLoading} class="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-brand hover:text-white disabled:opacity-50">{moreEpisodesLoading ? 'Loading earlier episodes…' : episodeListWarning ? 'Retry earlier episodes' : 'Load earlier episodes'}</button>
+				{/if}
 			</div>
-			<ul class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+			{#if episodeListWarning}
+				<p class="mb-4 rounded-lg border border-amber-900/60 bg-amber-950/30 px-4 py-3 text-sm text-amber-200" role="alert">{episodeListWarning}</p>
+			{/if}
+			<ul bind:this={episodeGrid} class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
 				{#each episodes as ep (ep.index)}
-					<li>
+					<li data-episode-index={ep.index}>
 						<button
 							type="button"
 							onclick={() => watch(ep)}
@@ -366,6 +461,11 @@
 					</li>
 				{/each}
 			</ul>
+			{#if nextEpisodeOffset !== null}
+				<div class="mt-6 text-center">
+					<button type="button" onclick={loadEarlierEpisodes} disabled={moreEpisodesLoading} class="rounded-md border border-neutral-700 bg-neutral-900/60 px-5 py-2.5 text-sm text-neutral-300 hover:border-brand hover:text-white disabled:opacity-50">{moreEpisodesLoading ? 'Loading earlier episodes…' : episodeListWarning ? 'Retry earlier episodes' : 'Load earlier episodes'}</button>
+				</div>
+			{/if}
 		{/if}
 	</div>
 {:else}

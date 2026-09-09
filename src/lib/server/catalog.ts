@@ -1,7 +1,6 @@
 // Server-only source catalog client.
 // Never imported by the client bundle ($lib/server/* is excluded from the browser).
 
-import * as cheerio from 'cheerio';
 import { env } from '$env/dynamic/private';
 import type {
 	Episode,
@@ -12,6 +11,7 @@ import type {
 } from '$lib/types';
 import { sealUrl } from '$lib/server/tokens';
 import { contentIdForSourcePost, contentIdFromSourceUrl } from '$lib/server/content-id';
+import { collectEpisodePages, readEpisodeDocument } from '$lib/server/episode-list';
 
 function trimTrailingSlash(v: string | undefined): string {
 	return (v || '').replace(/\/+$/, '');
@@ -86,8 +86,9 @@ async function request(url: string, init: RequestInit = {}): Promise<Response> {
 	throw new CatalogError(`Upstream request failed: ${String(lastErr)}`);
 }
 
-export async function fetchPage(url: string): Promise<string> {
+export async function fetchPage(url: string, signal?: AbortSignal): Promise<string> {
 	const res = await request(url, {
+		signal,
 		headers: { ...COMMON_HEADERS, Referer: `${SOURCE_ORIGIN}/` }
 	});
 	if (!res.ok) throw new CatalogError(`Page request failed (${res.status}).`);
@@ -117,11 +118,6 @@ export function extractSession(html: string): Record<string, unknown> | null {
 	} catch {
 		return null;
 	}
-}
-
-function parseEpisodeNo(title: string): number | null {
-	const m = title.match(/(\d+)\s*화/);
-	return m ? parseInt(m[1], 10) : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -173,48 +169,33 @@ function sealIf(v: string): string {
 
 // --- public API ---
 
-// Episode page -> (series name, full episode list). Ordered 1..N.
-export async function getEpisodes(pageUrl: string): Promise<EpisodeList> {
-	const html = await fetchPage(pageUrl);
-	const $ = cheerio.load(html);
+// Initial HTML + bounded AJAX list pages. An explicit offset resumes a larger/partial list.
+export async function getEpisodes(pageUrl: string, offset?: number, signal?: AbortSignal): Promise<EpisodeList> {
+	const document = offset === undefined ? readEpisodeDocument(await fetchPage(pageUrl, signal), pageUrl) : null;
+	const initialOffset = document?.offset ?? offset ?? 0;
+	const initialTotal = document?.total ?? null;
+	const nextOffset = document && !document.paginated
+		? null
+		: initialTotal !== null && initialOffset >= initialTotal ? null : initialOffset;
 
-	const series = guessSeries($('title').first().text().trim());
+	const result = await collectEpisodePages(pageUrl, {
+		items: document?.items ?? [], total: initialTotal, nextOffset
+	}, request, { ...AJAX_HEADERS, Referer: pageUrl, Origin: new URL(pageUrl).origin }, signal);
 
-	const episodes: Episode[] = [];
-	const seen = new Set<number>();
-
-	$('#other_list ul li[data-ep-idx]').each((_, el) => {
-		const $li = $(el);
-		const idx = parseInt($li.attr('data-ep-idx') || '', 10);
-		if (!idx || seen.has(idx)) return;
-		seen.add(idx);
-
-		const href = $li.find('a.ep-link').attr('href') || '';
-		const title =
-			$li.find('a.title .clamp').text().trim() ||
-			$li.find('a.title').text().trim() ||
-			$li.find('.searchText').text().trim();
-		const date = $li.find('.date').text().trim();
-		const $img = $li.find('img').first();
-		const thumbnail = sealIf(
-			$img.attr('data-src') || $img.attr('data-original') || $img.attr('src') || ''
-		);
-
-		const epPageUrl = absUrl(href);
-		if (!epPageUrl) return;
-		episodes.push({
-			index: idx,
-			no: parseEpisodeNo(title),
-			title,
-			playKey: sealUrl(epPageUrl, 'play'),
-			date,
-			thumbnail
-		});
-	});
-
-	episodes.sort((a, b) => (a.no ?? 1e9) - (b.no ?? 1e9));
-
-	return { contentId: contentIdFromSourceUrl(pageUrl), series, episodes };
+	const episodes: Episode[] = result.items.map((episode) => ({
+		index: episode.index,
+		no: episode.no,
+		title: episode.title,
+		playKey: sealUrl(episode.url, 'play'),
+		date: episode.date,
+		thumbnail: sealIf(episode.thumb)
+	}));
+	return {
+		contentId: contentIdFromSourceUrl(pageUrl),
+		series: document ? guessSeries(document.title) : '',
+		episodes,
+		pagination: result.pagination
+	};
 }
 
 // Title search via the board ajax endpoint.

@@ -16,13 +16,22 @@ export interface Episode {
 	thumbnail: string;
 }
 
+/** Source list progress; nextOffset is a row offset, never an episode ID. */
+export interface EpisodePagination {
+	total: number | null;
+	nextOffset: number | null;
+	warning?: string;
+}
+
 /** Episode list response. */
 export interface EpisodeList {
 	/** stable opaque source-post identity; never grants API access */
 	contentId: string;
 	series: string;
-	/** ordered 1..N */
+	/** Loaded episodes in ascending episode order. */
 	episodes: Episode[];
+	/** Optional for compatibility with previously cached/mock responses. */
+	pagination?: EpisodePagination;
 }
 
 /** A single search result item. */
