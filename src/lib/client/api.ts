@@ -1,6 +1,7 @@
 import type { EpisodeList, SearchResponse, StreamSession } from '$lib/types';
 import { API_ACCESS_REFRESHED_CODE } from '../api-access.ts';
 import { isEpisodeOffset } from '../episode-pagination.ts';
+import { reportServiceBlocked, requestServiceRecheck } from '../service-status.ts';
 
 interface RequestOptions {
 	signal?: AbortSignal;
@@ -43,6 +44,7 @@ async function requestPostJson<T>(
 	}
 
 	if (!response.ok) {
+		if (!options.signal?.aborted) reportServiceBlocked(path, response.status, data);
 		const message =
 			data && typeof data === 'object' && 'message' in data && typeof data.message === 'string'
 				? data.message
@@ -54,7 +56,12 @@ async function requestPostJson<T>(
 }
 
 export function postJson<T>(path: string, body: object, options: RequestOptions = {}): Promise<T> {
-	return requestPostJson<T>(path, body, options, true);
+	return requestPostJson<T>(path, body, options, true).catch((error: unknown) => {
+		if (!options.signal?.aborted && !isAbortError(error)) {
+			requestServiceRecheck(path, error instanceof ApiError ? error.status : undefined);
+		}
+		throw error;
+	});
 }
 
 export function searchTitles(query: string, signal?: AbortSignal): Promise<SearchResponse> {

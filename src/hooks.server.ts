@@ -1,5 +1,6 @@
 import { json, type Cookies, type Handle } from '@sveltejs/kit';
 import { API_ACCESS_REFRESHED_CODE } from '$lib/api-access';
+import { gateUpstreamRequest } from '$lib/server/availability';
 import {
 	API_ACCESS_COOKIE,
 	API_ACCESS_MAX_AGE,
@@ -84,6 +85,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 			response.headers.set('Cache-Control', 'private, no-store');
 			return securityHeaders(response, event.url.protocol);
 		}
+
+		const unavailable = await gateUpstreamRequest(event.request.method, event.url.pathname);
+		if (unavailable) return securityHeaders(unavailable, event.url.protocol);
 	} else if (
 		event.request.method === 'GET' &&
 		event.request.headers.get('accept')?.includes('text/html') &&

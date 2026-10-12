@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { locale, translate as tl, tr } from '$lib/i18n';
 	import { fade, fly } from 'svelte/transition';
 	import { getAppNavigation } from '$lib/app-navigation';
 	import { trapFocus } from '$lib/client/modal';
@@ -55,7 +56,7 @@
 		selected = new Set();
 	}
 	function clearAll() {
-		if (!window.confirm('Clear all watch history? This cannot be undone.')) return;
+		if (!window.confirm(tl($locale, 'Clear all watch history? This cannot be undone.'))) return;
 		clearHistory();
 		history = [];
 		selected = new Set();
@@ -98,14 +99,14 @@
 		>
 			<!-- toolbar -->
 			<div class="flex shrink-0 flex-wrap items-center gap-3 border-b border-neutral-800 px-5 py-4">
-				<h2 id="history-title" class="text-base font-semibold text-neutral-100">Watch history</h2>
+				<h2 id="history-title" class="text-base font-semibold text-neutral-100">{tl($locale, 'Watch history')}</h2>
 				<span class="text-xs text-neutral-500">{history.length}</span>
 				<div class="ml-auto flex flex-wrap items-center gap-3">
 					<div class="flex items-center gap-1 overflow-hidden rounded-md border border-neutral-800 bg-neutral-900 px-1 py-0.5">
 						<input
 							bind:value={query}
-							placeholder="Filter..."
-							aria-label="Filter watch history"
+							placeholder={tl($locale, "Filter...")}
+							aria-label={tl($locale, "Filter watch history")}
 							class="w-24 bg-transparent px-1.5 py-1 text-xs text-neutral-200 outline-none placeholder:text-neutral-600 sm:w-32"
 						/>
 						<div class="flex items-center text-[11px] text-neutral-500">
@@ -113,12 +114,12 @@
 								type="button"
 								onclick={() => (sortBy = 'recent')}
 								class="px-1.5 py-1 {sortBy === 'recent' ? 'text-neutral-100' : 'hover:text-neutral-300'}"
-							>Recent</button>
+							>{tl($locale, 'Recent')}</button>
 							<button
 								type="button"
 								onclick={() => (sortBy = 'title')}
 								class="px-1.5 py-1 {sortBy === 'title' ? 'text-neutral-100' : 'hover:text-neutral-300'}"
-							>Title</button>
+							>{tl($locale, 'Title')}</button>
 						</div>
 					</div>
 					{#if filtered.length > 0}
@@ -137,16 +138,16 @@
 							Clear all
 						</button>
 					{/if}
-					<button type="button" onclick={onClose} title="Close (Esc)" class="rounded px-2.5 py-1 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200">Close</button>
+					<button type="button" onclick={onClose} title={tl($locale, "Close (Esc)")} class="rounded px-2.5 py-1 text-xs text-neutral-400 hover:bg-neutral-800 hover:text-neutral-200">{tl($locale, 'Close')}</button>
 				</div>
 			</div>
 
 			<!-- grid -->
 			<div class="min-h-[200px] flex-1 overflow-y-auto p-4 sm:p-5">
 				{#if history.length === 0}
-					<div class="py-16 text-center text-sm text-neutral-600">No watch history yet.</div>
+					<div class="py-16 text-center text-sm text-neutral-600">{tl($locale, 'No watch history yet.')}</div>
 				{:else if filtered.length === 0}
-					<div class="py-16 text-center text-sm text-neutral-600">No matches.</div>
+					<div class="py-16 text-center text-sm text-neutral-600">{tl($locale, 'No matches.')}</div>
 				{:else}
 					<div class="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
 						{#each filtered as e (e.id)}

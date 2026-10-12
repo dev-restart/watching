@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { locale, translate as tl } from '$lib/i18n';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 
@@ -12,7 +13,7 @@
 </script>
 
 <svelte:head>
-	<title>{page.status === 404 ? 'Page not found' : 'Something went wrong'} — Watching</title>
+	<title>{page.status === 404 ? tl($locale, 'Page not found') : tl($locale, 'Something went wrong')} — Watching</title>
 </svelte:head>
 
 <section class="flex min-h-[68vh] items-center justify-center px-4 py-20 sm:px-6">

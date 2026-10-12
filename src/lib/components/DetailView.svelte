@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { locale, translate as tl, tr } from '$lib/i18n';
+	import { tick, untrack } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import type { Episode, StreamSession } from '$lib/types';
 	import { ApiError, isAbortError, loadEpisodes, loadMoreEpisodes } from '$lib/client/api';
@@ -15,12 +16,14 @@
 		detailKey = '',
 		initialPoster = '',
 		initialSynopsis = '',
+		serviceAvailable = true,
 		autoPlayEpIndex,
 		onBack
 	}: {
 		detailKey: string;
 		initialPoster?: string;
 		initialSynopsis?: string;
+		serviceAvailable?: boolean;
 		autoPlayEpIndex?: number;
 		onBack?: () => void;
 	} = $props();
@@ -31,6 +34,7 @@
 	let contentId = $state('');
 	let episodes = $state<Episode[]>([]);
 	let loaded = $state(false);
+	let recoveryPending = $state(false);
 	let episodeTotal = $state<number | null>(null);
 	let nextEpisodeOffset = $state<number | null>(null);
 	let moreEpisodesLoading = $state(false);
@@ -38,8 +42,8 @@
 	let episodeGrid = $state<HTMLUListElement>();
 	let detailSignal: AbortSignal | undefined;
 	const episodeCountLabel = $derived(episodeTotal !== null
-		? `${episodes.length} / ${episodeTotal} loaded`
-		: `${episodes.length} loaded`);
+		? `${episodes.length} / ${episodeTotal} ${tl($locale, 'loaded')}`
+		: `${episodes.length} ${tl($locale, 'loaded')}`);
 
 	type NowPlaying = { session: StreamSession; title: string; playKey: string };
 	let playing = $state<NowPlaying | null>(null);
@@ -67,10 +71,24 @@
 		return () => controller.abort();
 	});
 
+	// Retry a failed initial detail after recovery without reloading a mounted player.
+	$effect(() => {
+		if (!serviceAvailable) { recoveryPending = true; return; }
+		if (!recoveryPending || loading) return;
+		recoveryPending = false;
+		if (!loaded) untrack(retryDetail);
+	});
+
+	function retryDetail() {
+		const signal = detailSignal;
+		if (!serviceAvailable || loading || !signal || signal.aborted) return;
+		void loadDetail(detailKey, initialPoster, initialSynopsis, signal);
+	}
+
 	// Auto-resume a previously watched episode once the list is loaded.
 	let autoDone = false;
 	$effect(() => {
-		if (loaded && !autoDone && autoPlayEpIndex != null) {
+		if (serviceAvailable && loaded && !autoDone && autoPlayEpIndex != null) {
 			const ep = episodes.find((e) => e.index === autoPlayEpIndex);
 			if (ep) {
 				autoDone = true;
@@ -141,7 +159,7 @@
 	async function loadEarlierEpisodes() {
 		const signal = detailSignal;
 		const offset = nextEpisodeOffset;
-		if (!loaded || moreEpisodesLoading || offset === null || !signal || signal.aborted) return;
+		if (!serviceAvailable || !loaded || moreEpisodesLoading || offset === null || !signal || signal.aborted) return;
 		moreEpisodesLoading = true;
 		episodeListWarning = '';
 		try {
@@ -187,10 +205,13 @@
 	}
 
 	async function watch(ep: Episode, force = false) {
+		if (!serviceAvailable || pendingKey !== null) return;
+		const signal = detailSignal;
 		errorMsg = '';
 		pendingKey = ep.playKey;
 		try {
 			const s = await getOrFetchSession(ep.playKey, force);
+			if (signal?.aborted) return;
 			playing = { session: s, title: ep.title, playKey: ep.playKey };
 			lastFailedEp = null;
 			void trackEvent({
@@ -213,6 +234,7 @@
 			await tick();
 			document.getElementById('player-panel')?.scrollIntoView({ behavior: 'smooth' });
 		} catch (err) {
+			if (signal?.aborted) return;
 			errorMsg = err instanceof Error ? err.message : String(err);
 			lastFailedEp = ep;
 			void trackEvent({
@@ -221,13 +243,13 @@
 				status: err instanceof ApiError ? err.status : undefined
 			});
 		} finally {
-			pendingKey = null;
+			if (!signal?.aborted) pendingKey = null;
 		}
 	}
 </script>
 
 <svelte:head>
-	<title>{series || 'Details'} — Watching</title>
+	<title>{series || tl($locale, 'Details')} — Watching</title>
 </svelte:head>
 
 {#if shareOpen}
@@ -235,7 +257,7 @@
 		{detailKey}
 		title={series}
 		onClose={() => (shareOpen = false)}
-		onCopied={() => (shareNotice = 'Link copied.')}
+		onCopied={() => (shareNotice = tr('Link copied.'))}
 	/>
 {/if}
 
@@ -257,6 +279,7 @@
 		<div transition:fade class="rounded-lg border border-rose-900/60 bg-rose-950/30 px-4 py-4 text-sm text-rose-200">
 			⚠ {errorMsg}
 		</div>
+		<button type="button" onclick={retryDetail} disabled={!serviceAvailable || loading} class="mr-2 mt-4 rounded-md border border-neutral-700 px-5 py-2 text-sm font-semibold text-neutral-200 hover:border-brand disabled:opacity-50">{tl($locale, 'Retry')}</button>
 		<button
 			type="button"
 			onclick={() => onBack?.()}
@@ -295,7 +318,7 @@
 				onclick={() => onBack?.()}
 				class="mb-4 inline-flex items-center gap-1 text-xs text-neutral-400 hover:text-neutral-200"
 			>
-				← Back
+				← {tl($locale, 'Back')}
 			</button>
 			<div class="flex items-start gap-3 sm:gap-4">
 				<h1 class="min-w-0 max-w-3xl flex-1 break-words text-3xl font-extrabold tracking-tight sm:text-5xl">{series}</h1>
@@ -303,8 +326,8 @@
 					<button
 						type="button"
 						onclick={toggleBm}
-						title={bookmarked ? 'Remove bookmark' : 'Add bookmark'}
-						aria-label={bookmarked ? 'Remove bookmark' : 'Add bookmark'}
+						title={bookmarked ? tl($locale, 'Remove bookmark') : tl($locale, 'Add bookmark')}
+						aria-label={bookmarked ? tl($locale, 'Remove bookmark') : tl($locale, 'Add bookmark')}
 						aria-pressed={bookmarked}
 						class="rounded-full border border-neutral-700 bg-neutral-900/60 p-2.5 text-neutral-300 transition hover:border-brand hover:text-brand {bookmarked ? 'border-brand text-brand' : ''}"
 					>
@@ -315,8 +338,8 @@
 					<button
 						type="button"
 						onclick={() => { shareNotice = ''; shareOpen = true; }}
-						title="Share video"
-						aria-label="Share video"
+						title={tl($locale, "Share video")}
+						aria-label={tl($locale, "Share video")}
 						aria-haspopup="dialog"
 						class="rounded-full border border-neutral-700 bg-neutral-900/60 p-2.5 text-neutral-300 transition hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-brand"
 					>
@@ -334,9 +357,9 @@
 			{/if}
 			<div class="mt-3 flex items-center gap-3 text-sm text-neutral-400">
 				{#if isSeries}
-					<span>{nextEpisodeOffset !== null ? episodeCountLabel : `${episodes.length} episodes`}</span>
+					<span>{nextEpisodeOffset !== null ? episodeCountLabel : `${episodes.length} ${tl($locale, 'episodes')}`}</span>
 				{:else}
-					<span>Film</span>
+					<span>{tl($locale, 'Film')}</span>
 				{/if}
 			</div>
 
@@ -344,14 +367,14 @@
 				<button
 					type="button"
 					onclick={() => episodes[0] && watch(episodes[0])}
-					disabled={pendingKey !== null || !episodes[0]}
+					disabled={!serviceAvailable || pendingKey !== null || !episodes[0]}
 					class="mt-6 flex items-center gap-2 rounded-md bg-white px-7 py-3 text-sm font-bold text-black transition hover:bg-neutral-200 disabled:opacity-50"
 				>
 					{#if pendingKey === episodes[0]?.playKey}
-						Preparing…
+						{tl($locale, 'Preparing…')}
 					{:else}
 						<svg class="h-5 w-5" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4" /></svg>
-						Play
+						{tl($locale, 'Play')}
 					{/if}
 				</button>
 			{/if}
@@ -373,7 +396,7 @@
 						onclick={() => (playing = null)}
 						class="ml-auto rounded bg-neutral-800 px-2 py-1 text-[11px] text-neutral-300 hover:bg-neutral-700"
 					>
-						Close
+						{tl($locale, 'Close')}
 					</button>
 				</div>
 				<div class="relative aspect-video w-full bg-black">
@@ -401,9 +424,10 @@
 					<button
 						type="button"
 						onclick={retryLast}
+						disabled={!serviceAvailable || pendingKey !== null}
 						class="shrink-0 rounded bg-amber-900/50 px-3 py-1 text-xs font-semibold text-amber-100 hover:bg-amber-900/80"
 					>
-						Retry
+						{tl($locale, 'Retry')}
 					</button>
 				{/if}
 			</div>
@@ -411,10 +435,10 @@
 
 		{#if isSeries}
 			<div class="mb-4 flex flex-wrap items-baseline gap-3">
-				<h2 class="text-xl font-bold">Episodes</h2>
-				<span class="text-sm text-neutral-500" role="status">{nextEpisodeOffset !== null || (episodeTotal !== null && episodeTotal !== episodes.length) ? episodeCountLabel : `${episodes.length} total`}</span>
+				<h2 class="text-xl font-bold">{tl($locale, 'Episodes')}</h2>
+				<span class="text-sm text-neutral-500" role="status">{nextEpisodeOffset !== null || (episodeTotal !== null && episodeTotal !== episodes.length) ? episodeCountLabel : `${episodes.length} ${tl($locale, 'total')}`}</span>
 				{#if nextEpisodeOffset !== null}
-					<button type="button" onclick={loadEarlierEpisodes} disabled={moreEpisodesLoading} class="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-brand hover:text-white disabled:opacity-50">{moreEpisodesLoading ? 'Loading earlier episodes…' : episodeListWarning ? 'Retry earlier episodes' : 'Load earlier episodes'}</button>
+					<button type="button" onclick={loadEarlierEpisodes} disabled={!serviceAvailable || moreEpisodesLoading} class="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:border-brand hover:text-white disabled:opacity-50">{tl($locale, moreEpisodesLoading ? 'Loading earlier episodes…' : episodeListWarning ? 'Retry earlier episodes' : 'Load earlier episodes')}</button>
 				{/if}
 			</div>
 			{#if episodeListWarning}
@@ -426,7 +450,7 @@
 						<button
 							type="button"
 							onclick={() => watch(ep)}
-							disabled={pendingKey !== null}
+							disabled={!serviceAvailable || pendingKey !== null}
 							class="group relative block aspect-[2/3] w-full overflow-hidden rounded-lg bg-neutral-800 text-left transition hover:z-10 disabled:opacity-60 {playing?.playKey === ep.playKey ? 'z-10 ring-2 ring-brand' : 'hover:ring-2 hover:ring-brand'}"
 						>
 							<div class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-neutral-700 to-neutral-900 text-3xl font-bold text-neutral-400">
@@ -455,7 +479,7 @@
 								<div class="mt-1 line-clamp-2 text-xs font-semibold leading-tight text-white">{ep.title}</div>
 							</div>
 							{#if pendingKey === ep.playKey}
-								<div class="absolute inset-0 flex items-center justify-center bg-black/50 text-xs text-white">Loading…</div>
+								<div class="absolute inset-0 flex items-center justify-center bg-black/50 text-xs text-white">{tl($locale, 'Loading…')}</div>
 							{/if}
 						</button>
 					</li>
@@ -463,7 +487,7 @@
 			</ul>
 			{#if nextEpisodeOffset !== null}
 				<div class="mt-6 text-center">
-					<button type="button" onclick={loadEarlierEpisodes} disabled={moreEpisodesLoading} class="rounded-md border border-neutral-700 bg-neutral-900/60 px-5 py-2.5 text-sm text-neutral-300 hover:border-brand hover:text-white disabled:opacity-50">{moreEpisodesLoading ? 'Loading earlier episodes…' : episodeListWarning ? 'Retry earlier episodes' : 'Load earlier episodes'}</button>
+					<button type="button" onclick={loadEarlierEpisodes} disabled={!serviceAvailable || moreEpisodesLoading} class="rounded-md border border-neutral-700 bg-neutral-900/60 px-5 py-2.5 text-sm text-neutral-300 hover:border-brand hover:text-white disabled:opacity-50">{tl($locale, moreEpisodesLoading ? 'Loading earlier episodes…' : episodeListWarning ? 'Retry earlier episodes' : 'Load earlier episodes')}</button>
 				</div>
 			{/if}
 		{/if}
@@ -471,6 +495,6 @@
 {:else}
 	<div class="py-32 text-center text-sm text-neutral-500">
 		Nothing to show here.
-		<button type="button" onclick={() => onBack?.()} class="ml-2 underline text-neutral-300">Go back</button>
+		<button type="button" onclick={() => onBack?.()} class="ml-2 underline text-neutral-300">{tl($locale, 'Go back')}</button>
 	</div>
 {/if}

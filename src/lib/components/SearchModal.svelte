@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { locale, translate as tl, tr } from '$lib/i18n';
 	import { tick } from 'svelte';
 	import { fade, fly } from 'svelte/transition';
 	import { getAppNavigation } from '$lib/app-navigation';
@@ -242,7 +243,7 @@
 			tabindex="-1"
 			role="dialog"
 			aria-modal="true"
-			aria-label="Search titles"
+			aria-label={tl($locale, "Search titles")}
 		>
 			<div class="flex shrink-0 items-center gap-2 border-b border-neutral-800 px-3 py-3 sm:px-6 sm:py-5">
 				<div class="flex h-11 min-w-0 flex-1 items-center rounded-lg border border-neutral-700 bg-neutral-900/70 px-2.5 transition focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/20">
@@ -254,16 +255,16 @@
 						bind:this={inputEl}
 						bind:value={query}
 						oninput={onInput}
-						placeholder="Search titles..."
-						aria-label="Search titles"
+						placeholder={tl($locale, "Search titles...")}
+						aria-label={tl($locale, "Search titles")}
 						class="h-full min-w-0 flex-1 border-0 bg-transparent px-2 py-0 text-base text-neutral-100 outline-none placeholder:text-neutral-500 focus:ring-0 sm:text-xl"
 					/>
 					{#if speechSupported}
 						<button
 							type="button"
 							onclick={toggleVoice}
-							title="Voice search"
-							aria-label="Voice search"
+							title={tl($locale, "Voice search")}
+							aria-label={tl($locale, "Voice search")}
 							aria-pressed={listening}
 							class="grid h-9 w-9 shrink-0 place-items-center rounded-md text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100 {listening ? 'animate-pulse text-brand' : ''}"
 						>
@@ -277,11 +278,11 @@
 				<button
 					type="button"
 					onclick={close}
-					aria-label="Cancel search"
-					title="Cancel (Esc)"
+					aria-label={tl($locale, "Cancel search")}
+					title={tl($locale, "Cancel (Esc)")}
 					class="h-11 shrink-0 rounded-md px-1.5 text-sm font-medium text-neutral-300 transition hover:bg-neutral-800 hover:text-neutral-100 sm:px-2.5"
 				>
-					Cancel
+					{tl($locale, 'Cancel')}
 				</button>
 			</div>
 
@@ -310,7 +311,7 @@
 									onclick={() => (activeCat = c)}
 									class="rounded-full px-2.5 py-1 text-[11px] transition {activeCat === c ? 'bg-brand text-white' : 'bg-neutral-800 text-neutral-400 hover:text-neutral-200'}"
 								>
-									{c}
+									{c === 'All' ? tl($locale, 'All') : c}
 								</button>
 							{/each}
 						</div>
@@ -341,9 +342,9 @@
 						{/each}
 					</ul>
 				{:else if touched}
-					<div class="px-3 py-10 text-center text-sm text-neutral-500">No results found.</div>
+					<div class="px-3 py-10 text-center text-sm text-neutral-500">{tl($locale, 'No results found.')}</div>
 				{:else if recents.length}
-					<div class="px-3 py-2 text-[11px] uppercase tracking-wide text-neutral-600">Recent</div>
+					<div class="px-3 py-2 text-[11px] uppercase tracking-wide text-neutral-600">{tl($locale, 'Recent')}</div>
 					<div class="flex flex-wrap gap-2 px-3 pb-2">
 						{#each recents as q (q)}
 							<div class="flex items-center overflow-hidden rounded-full bg-neutral-800 text-xs text-neutral-300 transition hover:bg-neutral-700">
@@ -354,7 +355,7 @@
 									type="button"
 									onclick={() => { removeRecentQuery(q); recents = loadRecentQueries(); }}
 									class="py-1 pl-1.5 pr-3 text-neutral-500 hover:text-rose-300"
-									aria-label={`Remove ${q} from recent searches`}
+									aria-label={`${tl($locale, "Remove from recent searches")}: ${q}`}
 								>×</button>
 							</div>
 						{/each}
@@ -363,11 +364,11 @@
 							onclick={() => { clearRecentQueries(); recents = []; }}
 							class="rounded-full px-2.5 py-1 text-[11px] text-neutral-500 hover:text-neutral-300"
 						>
-							Clear
+							{tl($locale, 'Clear')}
 						</button>
 					</div>
 				{:else}
-					<div class="px-3 py-10 text-center text-sm text-neutral-600">Type a title to search.</div>
+					<div class="px-3 py-10 text-center text-sm text-neutral-600">{tl($locale, 'Type a title to search.')}</div>
 				{/if}
 			</div>
 		</div>
